@@ -24,8 +24,86 @@ class NotificationController extends Controller
         $channel = $validated['channel'] ?? null;
 
         $readyItems = collect();
+        $kitchenItems = collect();
+        $barItems = collect();
         $pendingQrOrders = collect();
         $cashierBills = collect();
+
+        if ($channel === null || $channel === 'kitchen_new') {
+            $kitchenItems = OrderItem::query()
+                ->with([
+                    'menu:id,name',
+                    'order:id,order_no,bill_id,sent_at',
+                    'order.bill:id,bill_no,table_id',
+                    'order.bill.table:id,code,name',
+                ])
+                ->where('station_type', 'KITCHEN')
+                ->whereIn('status', ['WAITING', 'ACCEPTED', 'COOKING'])
+                ->latest('id')
+                ->limit($limit)
+                ->get()
+                ->map(fn (OrderItem $item) => [
+                    'type' => 'KITCHEN_NEW_ITEM',
+                    'channel' => 'kitchen_new',
+                    'sort_at' => optional($item->order?->sent_at)->toIso8601String() ?? optional($item->created_at)->toIso8601String() ?? optional($item->updated_at)->toIso8601String(),
+                    'title' => 'New kitchen order',
+                    'message' => trim(($item->menu?->name ?? 'Kitchen item') . ' for ' . ($item->order?->bill?->table?->name ?? $item->order?->bill?->bill_no)),
+                    'entity_type' => 'order_item',
+                    'entity_id' => $item->id,
+                    'meta' => [
+                        'order_item_id' => $item->id,
+                        'station_type' => $item->station_type,
+                        'menu_name' => $item->menu?->name,
+                        'qty' => $item->qty,
+                        'status' => $item->status,
+                        'order_id' => $item->order?->id,
+                        'order_no' => $item->order?->order_no,
+                        'bill_id' => $item->order?->bill?->id,
+                        'bill_no' => $item->order?->bill?->bill_no,
+                        'table_id' => $item->order?->bill?->table?->id,
+                        'table_name' => $item->order?->bill?->table?->name,
+                        'sent_at' => optional($item->order?->sent_at)->toIso8601String(),
+                    ],
+                ]);
+        }
+
+        if ($channel === null || $channel === 'bar_new') {
+            $barItems = OrderItem::query()
+                ->with([
+                    'menu:id,name',
+                    'order:id,order_no,bill_id,sent_at',
+                    'order.bill:id,bill_no,table_id',
+                    'order.bill.table:id,code,name',
+                ])
+                ->where('station_type', 'BAR')
+                ->whereIn('status', ['WAITING', 'ACCEPTED', 'PREPARING'])
+                ->latest('id')
+                ->limit($limit)
+                ->get()
+                ->map(fn (OrderItem $item) => [
+                    'type' => 'BAR_NEW_ITEM',
+                    'channel' => 'bar_new',
+                    'sort_at' => optional($item->order?->sent_at)->toIso8601String() ?? optional($item->created_at)->toIso8601String() ?? optional($item->updated_at)->toIso8601String(),
+                    'title' => 'New bar order',
+                    'message' => trim(($item->menu?->name ?? 'Bar item') . ' for ' . ($item->order?->bill?->table?->name ?? $item->order?->bill?->bill_no)),
+                    'entity_type' => 'order_item',
+                    'entity_id' => $item->id,
+                    'meta' => [
+                        'order_item_id' => $item->id,
+                        'station_type' => $item->station_type,
+                        'menu_name' => $item->menu?->name,
+                        'qty' => $item->qty,
+                        'status' => $item->status,
+                        'order_id' => $item->order?->id,
+                        'order_no' => $item->order?->order_no,
+                        'bill_id' => $item->order?->bill?->id,
+                        'bill_no' => $item->order?->bill?->bill_no,
+                        'table_id' => $item->order?->bill?->table?->id,
+                        'table_name' => $item->order?->bill?->table?->name,
+                        'sent_at' => optional($item->order?->sent_at)->toIso8601String(),
+                    ],
+                ]);
+        }
 
         if ($channel === null || $channel === 'waiter_ready') {
             $readyItems = OrderItem::query()
@@ -120,12 +198,15 @@ class NotificationController extends Controller
         }
 
         $items = $readyItems
+            ->concat($kitchenItems)
+            ->concat($barItems)
             ->concat($pendingQrOrders)
             ->concat($cashierBills)
             ->sortByDesc('sort_at')
             ->take($limit)
             ->values()
             ->map(function (array $item) {
+                $item['occurred_at'] = $item['sort_at'] ?? null;
                 unset($item['sort_at']);
 
                 return $item;
@@ -133,6 +214,14 @@ class NotificationController extends Controller
 
         return response()->json([
             'summary' => [
+                'kitchen_queue_count' => OrderItem::query()
+                    ->where('station_type', 'KITCHEN')
+                    ->whereIn('status', ['WAITING', 'ACCEPTED', 'COOKING'])
+                    ->count(),
+                'bar_queue_count' => OrderItem::query()
+                    ->where('station_type', 'BAR')
+                    ->whereIn('status', ['WAITING', 'ACCEPTED', 'PREPARING'])
+                    ->count(),
                 'ready_items_count' => OrderItem::query()->where('status', 'READY')->count(),
                 'pending_qr_orders_count' => QrOrder::query()->where('status', 'PENDING')->count(),
                 'cashier_action_bills_count' => Bill::query()->whereIn('status', ['READY_TO_PAY', 'PARTIALLY_PAID'])->count(),

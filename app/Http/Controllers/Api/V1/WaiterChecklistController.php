@@ -20,10 +20,14 @@ class WaiterChecklistController extends Controller
                 'order.bill.table:id,code,name,area',
                 'order.bill.customer:id,name,member_code',
             ])
-            ->where('status', 'READY')
+            ->when(
+                $request->filled('status'),
+                fn ($query) => $query->where('status', $request->string('status')),
+                fn ($query) => $query->whereIn('status', ['READY', 'SERVED']),
+            )
             ->when($request->filled('table_id'), fn ($query) => $query->whereHas('order.bill', fn ($billQuery) => $billQuery->where('table_id', $request->integer('table_id'))))
             ->when($request->filled('station_type'), fn ($query) => $query->where('station_type', $request->string('station_type')))
-            ->latest('ready_at')
+            ->orderByRaw('COALESCE(served_at, ready_at, updated_at) DESC')
             ->get()
             ->map(fn (OrderItem $item) => [
                 'id' => $item->id,
@@ -32,6 +36,7 @@ class WaiterChecklistController extends Controller
                 'status' => $item->status,
                 'station_type' => $item->station_type,
                 'ready_at' => $item->ready_at,
+                'served_at' => $item->served_at,
                 'menu' => $item->menu ? [
                     'id' => $item->menu->id,
                     'name' => $item->menu->name,

@@ -253,6 +253,66 @@ class ExampleTest extends TestCase
     }
 
     /**
+     * Verify dashboard analytics payload is available for operational roles.
+     */
+    public function test_dashboard_analytics_payload_is_available(): void
+    {
+        $this->seed();
+
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $table = Table::query()->where('code', 'T01')->firstOrFail();
+        $food = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+
+        $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'DINE_IN',
+            'table_id' => $table->id,
+            'guest_count' => 2,
+        ])->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [
+                ['menu_id' => $food->id, 'qty' => 2],
+            ],
+        ])->assertCreated();
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/bills/{$billId}/payments", [
+                'payment_method' => 'CASH',
+                'amount' => 56000,
+            ])
+            ->assertCreated();
+
+        $this->actingAs($cashier, 'sanctum')
+            ->getJson('/api/v1/dashboard')
+            ->assertOk()
+            ->assertJsonPath('summary.today_bills', 1)
+            ->assertJsonStructure([
+                'summary' => [
+                    'total_tables',
+                    'available_tables',
+                    'occupied_tables',
+                    'open_bills',
+                    'ready_to_pay_bills',
+                    'today_sales',
+                    'today_bills',
+                    'average_bill',
+                    'sales_growth_percent',
+                ],
+                'analytics' => [
+                    'sales_trend',
+                    'top_items',
+                    'payment_methods',
+                    'bill_types',
+                    'station_load' => [
+                        'kitchen' => ['waiting_count', 'processing_count', 'ready_count'],
+                        'bar' => ['waiting_count', 'processing_count', 'ready_count'],
+                        'waiter' => ['ready_to_serve_count', 'served_today_count'],
+                    ],
+                ],
+            ]);
+    }
+
+    /**
      * Verify permission and transfer table flow.
      */
     public function test_permission_boundaries_and_transfer_table_work(): void
@@ -1178,6 +1238,17 @@ class ExampleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.status', 'SERVED')
             ->assertJsonPath('data.orders.0.status', 'SERVED');
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [
+                ['menu_id' => $food->id, 'qty' => 1],
+            ],
+        ])->assertCreated();
+
+        $this->actingAs($cashier, 'sanctum')
+            ->getJson("/api/v1/bills/{$billId}")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'ORDERING');
     }
 
     /**

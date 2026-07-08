@@ -33,7 +33,7 @@ class OrderController extends Controller
             'items.*.notes' => ['nullable', 'string'],
         ]);
 
-        abort_if(! in_array($bill->status, ['OPEN', 'ORDERING', 'READY_TO_PAY'], true), 422, 'Bill tidak bisa menerima order baru.');
+        abort_if(! in_array($bill->status, ['OPEN', 'ORDERING', 'READY_TO_PAY', 'SERVED'], true), 422, 'Bill tidak bisa menerima order baru.');
 
         $user = $request->user();
 
