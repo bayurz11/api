@@ -1,0 +1,251 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Models\Bill;
+use App\Models\Order;
+use App\Models\Printer;
+use App\Models\PrintJob;
+use App\Support\AuditLogger;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class PrintController extends Controller
+{
+    public function kitchenTicket(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'order_id' => ['required', 'integer', 'exists:orders,id'],
+            'printer_id' => ['nullable', 'integer', 'exists:printers,id'],
+        ]);
+
+        $order = Order::query()
+            ->with(['bill.table', 'items.menu'])
+            ->findOrFail($validated['order_id']);
+
+        $items = $order->items->where('station_type', 'KITCHEN')->values();
+        abort_if($items->isEmpty(), 422, 'Order tidak memiliki item kitchen.');
+
+        $job = $this->createPrintJob(
+            request: $request,
+            jobType: 'KITCHEN_TICKET',
+            referenceType: 'order',
+            referenceId: $order->id,
+            printerId: $validated['printer_id'] ?? $this->resolvePrinterId('KITCHEN'),
+            payload: [
+                'order_no' => $order->order_no,
+                'bill_no' => $order->bill->bill_no,
+                'table' => $order->bill->table?->name,
+                'items' => $items->map(fn ($item) => [
+                    'menu_name' => $item->menu?->name,
+                    'qty' => $item->qty,
+                    'notes' => $item->notes,
+                ])->values(),
+            ],
+        );
+
+        return response()->json([
+            'message' => 'Print job kitchen berhasil dibuat.',
+            'data' => $job,
+        ], 201);
+    }
+
+    public function barTicket(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'order_id' => ['required', 'integer', 'exists:orders,id'],
+            'printer_id' => ['nullable', 'integer', 'exists:printers,id'],
+        ]);
+
+        $order = Order::query()
+            ->with(['bill.table', 'items.menu'])
+            ->findOrFail($validated['order_id']);
+
+        $items = $order->items->where('station_type', 'BAR')->values();
+        abort_if($items->isEmpty(), 422, 'Order tidak memiliki item bar.');
+
+        $job = $this->createPrintJob(
+            request: $request,
+            jobType: 'BAR_TICKET',
+            referenceType: 'order',
+            referenceId: $order->id,
+            printerId: $validated['printer_id'] ?? $this->resolvePrinterId('BAR'),
+            payload: [
+                'order_no' => $order->order_no,
+                'bill_no' => $order->bill->bill_no,
+                'table' => $order->bill->table?->name,
+                'items' => $items->map(fn ($item) => [
+                    'menu_name' => $item->menu?->name,
+                    'qty' => $item->qty,
+                    'notes' => $item->notes,
+                ])->values(),
+            ],
+        );
+
+        return response()->json([
+            'message' => 'Print job bar berhasil dibuat.',
+            'data' => $job,
+        ], 201);
+    }
+
+    public function proformaBill(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'bill_id' => ['required', 'integer', 'exists:bills,id'],
+            'printer_id' => ['nullable', 'integer', 'exists:printers,id'],
+        ]);
+
+        $bill = Bill::query()->with(['table', 'items'])->findOrFail($validated['bill_id']);
+
+        $job = $this->createPrintJob(
+            request: $request,
+            jobType: 'PROFORMA_BILL',
+            referenceType: 'bill',
+            referenceId: $bill->id,
+            printerId: $validated['printer_id'] ?? $this->resolvePrinterId(null),
+            payload: [
+                'bill_no' => $bill->bill_no,
+                'table' => $bill->table?->name,
+                'subtotal' => $bill->subtotal,
+                'discount_total' => $bill->discount_total,
+                'tax_total' => $bill->tax_total,
+                'service_total' => $bill->service_total,
+                'grand_total' => $bill->grand_total,
+            ],
+        );
+
+        return response()->json([
+            'message' => 'Print job proforma bill berhasil dibuat.',
+            'data' => $job,
+        ], 201);
+    }
+
+    public function receipt(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'bill_id' => ['required', 'integer', 'exists:bills,id'],
+            'printer_id' => ['nullable', 'integer', 'exists:printers,id'],
+        ]);
+
+        $bill = Bill::query()->with(['table', 'payments'])->findOrFail($validated['bill_id']);
+        abort_if((float) $bill->paid_total <= 0, 422, 'Bill belum memiliki pembayaran untuk dicetak.');
+
+        $job = $this->createPrintJob(
+            request: $request,
+            jobType: 'RECEIPT',
+            referenceType: 'bill',
+            referenceId: $bill->id,
+            printerId: $validated['printer_id'] ?? $this->resolvePrinterId(null),
+            payload: [
+                'bill_no' => $bill->bill_no,
+                'table' => $bill->table?->name,
+                'grand_total' => $bill->grand_total,
+                'paid_total' => $bill->paid_total,
+                'payments' => $bill->payments->map(fn ($payment) => [
+                    'payment_no' => $payment->payment_no,
+                    'payment_method' => $payment->payment_method,
+                    'amount' => $payment->amount,
+                    'status' => $payment->status,
+                ])->values(),
+            ],
+        );
+
+        return response()->json([
+            'message' => 'Print job receipt berhasil dibuat.',
+            'data' => $job,
+        ], 201);
+    }
+
+    public function customerChecklist(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'bill_id' => ['required', 'integer', 'exists:bills,id'],
+            'printer_id' => ['nullable', 'integer', 'exists:printers,id'],
+        ]);
+
+        $bill = Bill::query()->with(['table', 'customer', 'orders.items.menu'])->findOrFail($validated['bill_id']);
+
+        $items = $bill->orders
+            ->flatMap(fn ($order) => $order->items->map(fn ($item) => [
+                'order_no' => $order->order_no,
+                'menu_name' => $item->menu?->name,
+                'qty' => $item->qty,
+                'notes' => $item->notes,
+                'station_type' => $item->station_type,
+                'status' => $item->status,
+            ]))
+            ->values();
+
+        abort_if($items->isEmpty(), 422, 'Bill belum memiliki item untuk dicetak.');
+
+        $job = $this->createPrintJob(
+            request: $request,
+            jobType: 'CUSTOMER_CHECKLIST',
+            referenceType: 'bill',
+            referenceId: $bill->id,
+            printerId: $validated['printer_id'] ?? $this->resolvePrinterId(null),
+            payload: [
+                'bill_no' => $bill->bill_no,
+                'table' => $bill->table?->name,
+                'customer' => $bill->customer?->name,
+                'guest_count' => $bill->guest_count,
+                'items' => $items,
+            ],
+        );
+
+        return response()->json([
+            'message' => 'Print job customer checklist berhasil dibuat.',
+            'data' => $job,
+        ], 201);
+    }
+
+    public function jobs(Request $request): JsonResponse
+    {
+        $jobs = PrintJob::query()
+            ->with('printer:id,name,station_type')
+            ->when($request->filled('job_type'), fn ($query) => $query->where('job_type', $request->string('job_type')))
+            ->latest('id')
+            ->paginate($request->integer('per_page', 15));
+
+        return response()->json($jobs);
+    }
+
+    private function createPrintJob(
+        Request $request,
+        string $jobType,
+        string $referenceType,
+        int $referenceId,
+        ?int $printerId,
+        array $payload,
+    ): PrintJob {
+        $job = PrintJob::query()->create([
+            'printer_id' => $printerId,
+            'job_type' => $jobType,
+            'reference_type' => $referenceType,
+            'reference_id' => $referenceId,
+            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            'status' => 'PENDING',
+            'attempt_count' => 0,
+        ]);
+
+        AuditLogger::log(
+            userId: $request->user()->id,
+            roleName: $request->user()->getRoleNames()->first(),
+            action: 'print_job.created',
+            entityType: 'print_job',
+            entityId: $job->id,
+            after: $job->toArray(),
+        );
+
+        return $job;
+    }
+
+    private function resolvePrinterId(?string $stationType): ?int
+    {
+        return Printer::query()
+            ->when($stationType, fn ($query) => $query->where('station_type', $stationType))
+            ->where('is_active', true)
+            ->value('id');
+    }
+}
