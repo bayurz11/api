@@ -93,38 +93,14 @@ class DemoDataSeeder extends Seeder
         $makananId = DB::table('menu_categories')->where('name', 'Makanan')->value('id');
         $minumanId = DB::table('menu_categories')->where('name', 'Minuman')->value('id');
 
-        DB::table('menus')->upsert([
-            [
-                'category_id' => $makananId,
-                'sku' => 'MKN-001',
-                'name' => 'Nasi Goreng',
-                'description' => 'Nasi goreng spesial resto',
-                'price' => 28000,
-                'station_type' => 'KITCHEN',
-                'is_available' => true,
-                'is_active' => true,
-            ],
-            [
-                'category_id' => $makananId,
-                'sku' => 'MKN-002',
-                'name' => 'Ayam Bakar',
-                'description' => 'Ayam bakar bumbu manis',
-                'price' => 32000,
-                'station_type' => 'KITCHEN',
-                'is_available' => true,
-                'is_active' => true,
-            ],
-            [
-                'category_id' => $minumanId,
-                'sku' => 'MNM-001',
-                'name' => 'Es Teh',
-                'description' => 'Es teh manis',
-                'price' => 8000,
-                'station_type' => 'BAR',
-                'is_available' => true,
-                'is_active' => true,
-            ],
-        ], ['sku'], ['category_id', 'name', 'description', 'price', 'station_type', 'is_available', 'is_active']);
+        DB::table('menus')->upsert(
+            array_merge(
+                $this->buildKitchenMenus($makananId),
+                $this->buildBarMenus($minumanId),
+            ),
+            ['sku'],
+            ['category_id', 'name', 'description', 'price', 'station_type', 'is_available', 'is_active'],
+        );
 
         foreach ([
             [
@@ -157,5 +133,63 @@ class DemoDataSeeder extends Seeder
                 $printer,
             );
         }
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildKitchenMenus(int $categoryId): array
+    {
+        return [
+            ['category_id' => $categoryId, 'sku' => 'MKN-001', 'name' => 'Nasi Goreng Babeh', 'description' => 'Nasi goreng spesial dengan ayam suwir dan telur.', 'price' => 28000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-002', 'name' => 'Nasi Goreng Kambing', 'description' => 'Nasi goreng kambing dengan rempah khas Betawi.', 'price' => 36000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-003', 'name' => 'Mie Goreng Jawa', 'description' => 'Mie goreng manis gurih dengan sayur dan ayam.', 'price' => 26000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-004', 'name' => 'Mie Rebus Kampung', 'description' => 'Mie rebus kuah kental dengan telur dan sayuran.', 'price' => 25000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-005', 'name' => 'Soto Betawi Original', 'description' => 'Soto Betawi kuah santan dengan daging sapi.', 'price' => 38000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-006', 'name' => 'Soto Betawi Campur', 'description' => 'Soto Betawi dengan daging, paru, dan babat.', 'price' => 45000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-007', 'name' => 'Soto Betawi Pecak', 'description' => 'Soto Betawi dengan sambal pecak khas.', 'price' => 42000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-008', 'name' => 'Sop Iga Sapi', 'description' => 'Sop iga sapi kuah bening dengan sayur.', 'price' => 48000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-009', 'name' => 'Ayam Bakar Madu', 'description' => 'Ayam bakar bumbu madu dengan nasi putih.', 'price' => 32000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-010', 'name' => 'Ayam Goreng Serundeng', 'description' => 'Ayam goreng renyah dengan serundeng gurih.', 'price' => 30000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-011', 'name' => 'Lele Goreng', 'description' => 'Lele goreng garing dengan sambal dan lalapan.', 'price' => 24000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-012', 'name' => 'Nila Bakar', 'description' => 'Ikan nila bakar sambal kecap.', 'price' => 34000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-013', 'name' => 'Gurame Goreng', 'description' => 'Gurame goreng crispy saus asam manis.', 'price' => 58000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-014', 'name' => 'Iga Bakar Sambal Ijo', 'description' => 'Iga bakar empuk dengan sambal ijo pedas.', 'price' => 55000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-015', 'name' => 'Nasi Uduk Ayam', 'description' => 'Nasi uduk gurih dengan ayam goreng dan sambal.', 'price' => 30000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-016', 'name' => 'Nasi Timbel Komplit', 'description' => 'Nasi timbel dengan ayam, tahu, tempe, dan lalapan.', 'price' => 34000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-017', 'name' => 'Bebek Goreng', 'description' => 'Bebek goreng kremes dengan sambal merah.', 'price' => 42000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-018', 'name' => 'Pecel Lele Paket', 'description' => 'Lele goreng, nasi, tahu, tempe, dan sambal.', 'price' => 26000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-019', 'name' => 'Tahu Tempe Goreng', 'description' => 'Tahu dan tempe goreng hangat.', 'price' => 14000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-020', 'name' => 'Kentang Goreng', 'description' => 'Kentang goreng renyah dengan saus sambal.', 'price' => 18000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-021', 'name' => 'Bakwan Jagung', 'description' => 'Bakwan jagung gurih untuk lauk pendamping.', 'price' => 16000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-022', 'name' => 'Sate Taichan', 'description' => 'Sate ayam taichan dengan sambal pedas.', 'price' => 28000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-023', 'name' => 'Sate Maranggi', 'description' => 'Sate daging sapi bumbu maranggi.', 'price' => 36000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-024', 'name' => 'Rawon Daging', 'description' => 'Rawon kuah hitam dengan potongan daging sapi.', 'price' => 40000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MKN-025', 'name' => 'Nasi Putih', 'description' => 'Nasi putih hangat untuk pendamping hidangan.', 'price' => 7000, 'station_type' => 'KITCHEN', 'is_available' => true, 'is_active' => true],
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildBarMenus(int $categoryId): array
+    {
+        return [
+            ['category_id' => $categoryId, 'sku' => 'MNM-001', 'name' => 'Es Teh Manis', 'description' => 'Es teh manis segar.', 'price' => 8000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-002', 'name' => 'Teh Tawar Hangat', 'description' => 'Teh tawar hangat.', 'price' => 5000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-003', 'name' => 'Es Jeruk', 'description' => 'Jeruk peras dingin segar.', 'price' => 10000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-004', 'name' => 'Jeruk Hangat', 'description' => 'Jeruk hangat manis.', 'price' => 9000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-005', 'name' => 'Lemon Tea', 'description' => 'Teh lemon dingin dengan rasa segar.', 'price' => 12000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-006', 'name' => 'Kopi Hitam', 'description' => 'Kopi hitam panas.', 'price' => 12000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-007', 'name' => 'Kopi Susu', 'description' => 'Kopi susu hangat manis.', 'price' => 15000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-008', 'name' => 'Es Kopi Susu Gula Aren', 'description' => 'Es kopi susu dengan gula aren.', 'price' => 18000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-009', 'name' => 'Cappuccino', 'description' => 'Cappuccino hangat creamy.', 'price' => 20000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-010', 'name' => 'Cafe Latte', 'description' => 'Cafe latte dengan susu lembut.', 'price' => 22000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-011', 'name' => 'Susu Cokelat', 'description' => 'Susu cokelat dingin.', 'price' => 14000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-012', 'name' => 'Thai Tea', 'description' => 'Thai tea manis dan creamy.', 'price' => 16000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-013', 'name' => 'Matcha Latte', 'description' => 'Minuman matcha dingin creamy.', 'price' => 18000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-014', 'name' => 'Taro Latte', 'description' => 'Minuman taro dingin manis.', 'price' => 18000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+            ['category_id' => $categoryId, 'sku' => 'MNM-015', 'name' => 'Jus Alpukat', 'description' => 'Jus alpukat lembut dengan susu cokelat.', 'price' => 22000, 'station_type' => 'BAR', 'is_available' => true, 'is_active' => true],
+        ];
     }
 }

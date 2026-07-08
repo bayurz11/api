@@ -43,6 +43,8 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware('permission:tables.view')->group(function () {
             Route::get('/tables', [TableController::class, 'index']);
+            Route::post('/tables/{table}/mark-ready', [TableController::class, 'markReady']);
+            Route::post('/tables/{table}/mark-read', [TableController::class, 'markReady']);
         });
 
         Route::middleware('permission:tables.manage')->group(function () {

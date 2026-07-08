@@ -234,6 +234,22 @@ class ExampleTest extends TestCase
             'id' => $table->id,
             'status' => 'CLEANING',
         ]);
+
+        $table->update(['status' => 'AVAILABLE']);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson("/api/v1/tables/{$table->id}/mark-ready")
+            ->assertOk()
+            ->assertJsonPath('message', 'Meja ini sudah siap digunakan.')
+            ->assertJsonPath('data.status', 'AVAILABLE');
+
+        $table->update(['status' => 'CLEANING']);
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson("/api/v1/tables/{$table->id}/mark-read")
+            ->assertOk()
+            ->assertJsonPath('message', 'Meja ini sudah siap digunakan.')
+            ->assertJsonPath('data.status', 'AVAILABLE');
     }
 
     /**
@@ -1132,8 +1148,29 @@ class ExampleTest extends TestCase
             ->assertJsonPath('data.status', 'READY_TO_PAY')
             ->assertJsonPath('data.orders.0.status', 'READY');
 
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [
+                ['menu_id' => $food->id, 'qty' => 1],
+            ],
+        ])->assertCreated();
+
+        $this->actingAs($cashier, 'sanctum')
+            ->getJson("/api/v1/bills/{$billId}")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'ORDERING');
+
         $this->actingAs($waiter, 'sanctum')
             ->patchJson("/api/v1/order-items/{$item->id}/status", ['status' => 'SERVED'])
+            ->assertOk();
+
+        $latestItem = OrderItem::query()->latest('id')->firstOrFail();
+
+        $this->actingAs($kitchen, 'sanctum')
+            ->patchJson("/api/v1/order-items/{$latestItem->id}/status", ['status' => 'READY'])
+            ->assertOk();
+
+        $this->actingAs($waiter, 'sanctum')
+            ->patchJson("/api/v1/order-items/{$latestItem->id}/status", ['status' => 'SERVED'])
             ->assertOk();
 
         $this->actingAs($cashier, 'sanctum')

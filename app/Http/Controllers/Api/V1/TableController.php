@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Table;
 use App\Support\AuditLogger;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -21,6 +22,13 @@ class TableController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        Table::query()
+            ->where('status', 'CLEANING')
+            ->where('updated_at', '<=', Carbon::now()->subMinutes(10))
+            ->update([
+                'status' => 'AVAILABLE',
+            ]);
+
         $tables = Table::query()
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
             ->when($request->filled('area'), fn ($query) => $query->where('area', $request->string('area')))
@@ -95,6 +103,42 @@ class TableController extends Controller
 
         return response()->json([
             'message' => 'Meja berhasil diperbarui.',
+            'data' => $table,
+        ]);
+    }
+
+    public function markReady(Request $request, Table $table): JsonResponse
+    {
+        if ($table->status === 'AVAILABLE') {
+            return response()->json([
+                'message' => 'Meja ini sudah siap digunakan.',
+                'data' => $table,
+            ]);
+        }
+
+        abort_if(
+            $table->status !== 'CLEANING',
+            422,
+            'Meja ini tidak sedang dalam status pembersihan.',
+        );
+
+        $before = $table->only(['code', 'name', 'capacity', 'area', 'status', 'is_active']);
+
+        $table->status = 'AVAILABLE';
+        $table->save();
+
+        AuditLogger::log(
+            userId: $request->user()->id,
+            roleName: $request->user()->getRoleNames()->first(),
+            action: 'table.marked_ready',
+            entityType: 'table',
+            entityId: $table->id,
+            before: $before,
+            after: $table->only(['code', 'name', 'capacity', 'area', 'status', 'is_active']),
+        );
+
+        return response()->json([
+            'message' => 'Meja ini sudah siap digunakan.',
             'data' => $table,
         ]);
     }
