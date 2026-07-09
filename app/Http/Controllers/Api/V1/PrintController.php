@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\Printer;
 use App\Models\PrintJob;
 use App\Support\AuditLogger;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -89,38 +90,6 @@ class PrintController extends Controller
         ], 201);
     }
 
-    public function proformaBill(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'bill_id' => ['required', 'integer', 'exists:bills,id'],
-            'printer_id' => ['nullable', 'integer', 'exists:printers,id'],
-        ]);
-
-        $bill = Bill::query()->with(['table', 'items'])->findOrFail($validated['bill_id']);
-
-        $job = $this->createPrintJob(
-            request: $request,
-            jobType: 'PROFORMA_BILL',
-            referenceType: 'bill',
-            referenceId: $bill->id,
-            printerId: $validated['printer_id'] ?? $this->resolvePrinterId(null),
-            payload: [
-                'bill_no' => $bill->bill_no,
-                'table' => $bill->table?->name,
-                'subtotal' => $bill->subtotal,
-                'discount_total' => $bill->discount_total,
-                'tax_total' => $bill->tax_total,
-                'service_total' => $bill->service_total,
-                'grand_total' => $bill->grand_total,
-            ],
-        );
-
-        return response()->json([
-            'message' => 'Print job proforma bill berhasil dibuat.',
-            'data' => $job,
-        ], 201);
-    }
-
     public function receipt(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -157,47 +126,21 @@ class PrintController extends Controller
         ], 201);
     }
 
-    public function customerChecklist(Request $request): JsonResponse
+    public function receiptPdf(Bill $bill)
     {
-        $validated = $request->validate([
-            'bill_id' => ['required', 'integer', 'exists:bills,id'],
-            'printer_id' => ['nullable', 'integer', 'exists:printers,id'],
-        ]);
+        $bill->load(['table', 'customer', 'items', 'payments']);
+        abort_if((float) $bill->paid_total <= 0, 422, 'Bill belum memiliki pembayaran untuk dicetak.');
 
-        $bill = Bill::query()->with(['table', 'customer', 'orders.items.menu'])->findOrFail($validated['bill_id']);
+        $profile = RestaurantProfileController::profilePayload();
+        $customerName = $bill->customer?->name ?: $bill->customer_name;
 
-        $items = $bill->orders
-            ->flatMap(fn ($order) => $order->items->map(fn ($item) => [
-                'order_no' => $order->order_no,
-                'menu_name' => $item->menu?->name,
-                'qty' => $item->qty,
-                'notes' => $item->notes,
-                'station_type' => $item->station_type,
-                'status' => $item->status,
-            ]))
-            ->values();
+        $pdf = Pdf::loadView('pdf.receipt', [
+            'bill' => $bill,
+            'profile' => $profile,
+            'customerName' => $customerName,
+        ])->setPaper('a5', 'portrait');
 
-        abort_if($items->isEmpty(), 422, 'Bill belum memiliki item untuk dicetak.');
-
-        $job = $this->createPrintJob(
-            request: $request,
-            jobType: 'CUSTOMER_CHECKLIST',
-            referenceType: 'bill',
-            referenceId: $bill->id,
-            printerId: $validated['printer_id'] ?? $this->resolvePrinterId(null),
-            payload: [
-                'bill_no' => $bill->bill_no,
-                'table' => $bill->table?->name,
-                'customer' => $bill->customer?->name,
-                'guest_count' => $bill->guest_count,
-                'items' => $items,
-            ],
-        );
-
-        return response()->json([
-            'message' => 'Print job customer checklist berhasil dibuat.',
-            'data' => $job,
-        ], 201);
+        return $pdf->download("receipt-{$bill->bill_no}.pdf");
     }
 
     public function jobs(Request $request): JsonResponse

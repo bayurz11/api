@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\PrintController;
 use App\Http\Controllers\Api\V1\QrMenuController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ReservationController;
+use App\Http\Controllers\Api\V1\RestaurantProfileController;
 use App\Http\Controllers\Api\V1\TableController;
 use App\Http\Controllers\Api\V1\WaiterChecklistController;
 use Illuminate\Support\Facades\Route;
@@ -39,6 +40,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/audit-logs', [AuditLogController::class, 'index']);
             Route::get('/reports/sales-summary', [ReportController::class, 'salesSummary']);
             Route::get('/reports/sales-summary/export', [ReportController::class, 'exportSalesSummary']);
+            Route::get('/settings/restaurant-profile', [RestaurantProfileController::class, 'show']);
+            Route::post('/settings/restaurant-profile', [RestaurantProfileController::class, 'update']);
         });
 
         Route::middleware('permission:tables.view')->group(function () {
@@ -123,13 +126,12 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware('permission:prints.view')->group(function () {
             Route::get('/print-jobs', [PrintController::class, 'jobs']);
+            Route::get('/print/receipt/{bill}/pdf', [PrintController::class, 'receiptPdf']);
         });
 
         Route::middleware('permission:prints.create')->group(function () {
             Route::post('/print/kitchen-ticket', [PrintController::class, 'kitchenTicket']);
             Route::post('/print/bar-ticket', [PrintController::class, 'barTicket']);
-            Route::post('/print/customer-checklist', [PrintController::class, 'customerChecklist']);
-            Route::post('/print/proforma-bill', [PrintController::class, 'proformaBill']);
             Route::post('/print/receipt', [PrintController::class, 'receipt']);
         });
 

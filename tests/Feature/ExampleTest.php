@@ -10,9 +10,12 @@ use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\QrOrder;
 use App\Models\Reservation;
+use App\Models\Setting;
 use App\Models\Table;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class ExampleTest extends TestCase
@@ -613,6 +616,17 @@ class ExampleTest extends TestCase
             ->assertJsonPath('data.bill_type', 'TAKE_AWAY')
             ->assertJsonPath('data.table_id', null);
 
+        $manualCustomerResponse = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'TAKE_AWAY',
+            'customer_name' => 'Budi Pickup',
+            'guest_count' => 1,
+        ]);
+
+        $manualCustomerResponse
+            ->assertCreated()
+            ->assertJsonPath('data.bill_type', 'TAKE_AWAY')
+            ->assertJsonPath('data.customer_name', 'Budi Pickup');
+
         $customerBillResponse = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
             'bill_type' => 'CUSTOMER',
             'customer_id' => $customer->id,
@@ -680,7 +694,7 @@ class ExampleTest extends TestCase
     }
 
     /**
-     * Verify print jobs can be created for kitchen, bar, proforma, and receipt.
+     * Verify print jobs can be created for kitchen, bar, and final receipt.
      */
     public function test_print_jobs_flow_work(): void
     {
@@ -716,11 +730,6 @@ class ExampleTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.job_type', 'BAR_TICKET');
 
-        $this->actingAs($cashier, 'sanctum')
-            ->postJson('/api/v1/print/proforma-bill', ['bill_id' => $billId])
-            ->assertCreated()
-            ->assertJsonPath('data.job_type', 'PROFORMA_BILL');
-
         $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/payments", [
             'payment_method' => 'CASH',
             'amount' => 36000,
@@ -734,6 +743,55 @@ class ExampleTest extends TestCase
         $this->actingAs($cashier, 'sanctum')
             ->getJson('/api/v1/print-jobs')
             ->assertOk();
+    }
+
+    /**
+     * Verify restaurant profile can be updated and final receipt PDF downloaded.
+     */
+    public function test_restaurant_profile_and_receipt_pdf_flow_work(): void
+    {
+        Storage::fake('public');
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $table = Table::query()->where('code', 'T01')->firstOrFail();
+        $food = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson('/api/v1/settings/restaurant-profile', [
+                'restaurant_name' => 'Warung Babeh',
+                'restaurant_address' => 'Jl. Contoh No. 12, Jakarta',
+                'restaurant_logo' => UploadedFile::fake()->image('logo.png'),
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.restaurant_name', 'Warung Babeh');
+
+        $this->assertSame('Warung Babeh', Setting::getValue('restaurant_name'));
+        $this->assertSame('Jl. Contoh No. 12, Jakarta', Setting::getValue('restaurant_address'));
+
+        $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'DINE_IN',
+            'table_id' => $table->id,
+            'guest_count' => 2,
+        ])->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [
+                ['menu_id' => $food->id, 'qty' => 1],
+            ],
+        ])->assertCreated();
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/payments", [
+            'payment_method' => 'CASH',
+            'amount' => 28000,
+        ])->assertCreated();
+
+        $pdfResponse = $this->actingAs($cashier, 'sanctum')
+            ->get("/api/v1/print/receipt/{$billId}/pdf");
+
+        $pdfResponse->assertOk();
+        $this->assertStringContainsString('application/pdf', $pdfResponse->headers->get('content-type', ''));
     }
 
     /**
@@ -1075,7 +1133,7 @@ class ExampleTest extends TestCase
     }
 
     /**
-     * Verify waiter can read ready items, inspect bill checklist, and print customer checklist.
+     * Verify waiter can read ready items and inspect bill checklist.
      */
     public function test_waiter_checklist_flow_work(): void
     {
@@ -1125,10 +1183,6 @@ class ExampleTest extends TestCase
             ->assertJsonPath('data.bill.id', $billId)
             ->assertJsonCount(2, 'data.items');
 
-        $this->actingAs($waiter, 'sanctum')
-            ->postJson('/api/v1/print/customer-checklist', ['bill_id' => $billId])
-            ->assertCreated()
-            ->assertJsonPath('data.job_type', 'CUSTOMER_CHECKLIST');
     }
 
     /**

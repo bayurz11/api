@@ -51,6 +51,7 @@ class BillController extends Controller
             'bill_type' => ['required', 'string', Rule::in(self::BILL_TYPES)],
             'table_id' => ['nullable', 'integer', 'exists:tables,id'],
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+            'customer_name' => ['nullable', 'string', 'max:255'],
             'guest_count' => ['nullable', 'integer', 'min:1'],
         ]);
 
@@ -73,6 +74,7 @@ class BillController extends Controller
                 'bill_type' => $validated['bill_type'],
                 'table_id' => $validated['table_id'] ?? null,
                 'customer_id' => $validated['customer_id'] ?? null,
+                'customer_name' => $validated['customer_name'] ?? null,
                 'opened_by' => $user->id,
                 'cashier_id' => $user->id,
                 'guest_count' => $validated['guest_count'] ?? 1,
@@ -126,6 +128,7 @@ class BillController extends Controller
         $validated = $request->validate([
             'guest_count' => ['nullable', 'integer', 'min:1'],
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+            'customer_name' => ['nullable', 'string', 'max:255'],
             'discount_total' => ['nullable', 'numeric', 'min:0'],
             'tax_total' => ['nullable', 'numeric', 'min:0'],
             'service_total' => ['nullable', 'numeric', 'min:0'],
@@ -135,6 +138,7 @@ class BillController extends Controller
         $before = $bill->only([
             'guest_count',
             'customer_id',
+            'customer_name',
             'discount_total',
             'tax_total',
             'service_total',
@@ -146,6 +150,7 @@ class BillController extends Controller
             $bill->fill([
                 'guest_count' => $validated['guest_count'] ?? $bill->guest_count,
                 'customer_id' => array_key_exists('customer_id', $validated) ? $validated['customer_id'] : $bill->customer_id,
+                'customer_name' => array_key_exists('customer_name', $validated) ? $validated['customer_name'] : $bill->customer_name,
                 'discount_total' => $validated['discount_total'] ?? $bill->discount_total,
                 'tax_total' => $validated['tax_total'] ?? $bill->tax_total,
                 'service_total' => $validated['service_total'] ?? $bill->service_total,
@@ -165,6 +170,7 @@ class BillController extends Controller
             after: $bill->only([
                 'guest_count',
                 'customer_id',
+                'customer_name',
                 'discount_total',
                 'tax_total',
                 'service_total',
@@ -244,6 +250,7 @@ class BillController extends Controller
 
             $targetBill->update([
                 'customer_id' => $targetBill->customer_id ?? $bill->customer_id,
+                'customer_name' => $targetBill->customer_name ?: $bill->customer_name,
                 'guest_count' => max((int) $targetBill->guest_count, 1) + max((int) $bill->guest_count, 0),
                 'discount_total' => (float) $targetBill->discount_total + (float) $bill->discount_total,
                 'tax_total' => (float) $targetBill->tax_total + (float) $bill->tax_total,
@@ -293,6 +300,7 @@ class BillController extends Controller
             'bill_item_ids' => ['required', 'array', 'min:1'],
             'bill_item_ids.*' => ['required', 'integer', 'exists:bill_items,id'],
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+            'customer_name' => ['nullable', 'string', 'max:255'],
             'guest_count' => ['nullable', 'integer', 'min:1'],
         ]);
 
@@ -317,6 +325,7 @@ class BillController extends Controller
                 'bill_type' => $validated['customer_id'] ? 'CUSTOMER' : 'SPLIT',
                 'table_id' => null,
                 'customer_id' => $validated['customer_id'] ?? $bill->customer_id,
+                'customer_name' => $validated['customer_name'] ?? $bill->customer_name,
                 'opened_by' => $user->id,
                 'cashier_id' => $user->id,
                 'guest_count' => $validated['guest_count'] ?? $bill->guest_count,

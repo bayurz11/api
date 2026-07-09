@@ -16,6 +16,7 @@ class Bill extends Model
         'bill_type',
         'table_id',
         'customer_id',
+        'customer_name',
         'reservation_id',
         'opened_by',
         'cashier_id',
