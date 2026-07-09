@@ -47,6 +47,7 @@ class MenuController extends Controller
             'sku' => ['required', 'string', 'max:50', 'unique:menus,sku'],
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'image_url' => ['nullable', 'string'],
             'price' => ['required', 'numeric', 'min:0'],
             'station_type' => ['required', 'string', Rule::in(self::STATION_TYPES)],
             'is_available' => ['nullable', 'boolean'],
@@ -60,6 +61,7 @@ class MenuController extends Controller
             'sku' => $validated['sku'],
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
+            'image_url' => $validated['image_url'] ?? null,
             'price' => $validated['price'],
             'station_type' => $validated['station_type'],
             'is_available' => $validated['is_available'] ?? true,
@@ -88,6 +90,7 @@ class MenuController extends Controller
             'sku' => ['sometimes', 'required', 'string', 'max:50', Rule::unique('menus', 'sku')->ignore($menu->id)],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'image_url' => ['nullable', 'string'],
             'price' => ['sometimes', 'numeric', 'min:0'],
             'station_type' => ['sometimes', 'required', 'string', Rule::in(self::STATION_TYPES)],
             'is_available' => ['sometimes', 'boolean'],
@@ -99,7 +102,7 @@ class MenuController extends Controller
 
         $this->resolveValidCategory($resolvedCategoryId, $resolvedStationType);
 
-        $before = $menu->only(['category_id', 'sku', 'name', 'description', 'price', 'station_type', 'is_available', 'is_active']);
+        $before = $menu->only(['category_id', 'sku', 'name', 'description', 'image_url', 'price', 'station_type', 'is_available', 'is_active']);
 
         $menu->fill($validated);
         $menu->save();
@@ -111,7 +114,7 @@ class MenuController extends Controller
             entityType: 'menu',
             entityId: $menu->id,
             before: $before,
-            after: $menu->only(['category_id', 'sku', 'name', 'description', 'price', 'station_type', 'is_available', 'is_active']),
+            after: $menu->only(['category_id', 'sku', 'name', 'description', 'image_url', 'price', 'station_type', 'is_available', 'is_active']),
         );
 
         return response()->json([

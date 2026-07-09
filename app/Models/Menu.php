@@ -15,6 +15,7 @@ class Menu extends Model
         'sku',
         'name',
         'description',
+        'image_url',
         'price',
         'station_type',
         'is_available',
