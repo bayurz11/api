@@ -14,6 +14,8 @@ use Illuminate\Http\Request;
 
 class PrintController extends Controller
 {
+    private const THERMAL_PAPER_80MM = [0, 0, 226.77, 900];
+
     public function kitchenTicket(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -138,7 +140,7 @@ class PrintController extends Controller
             'bill' => $bill,
             'profile' => $profile,
             'customerName' => $customerName,
-        ])->setPaper('a5', 'portrait');
+        ])->setPaper(self::THERMAL_PAPER_80MM, 'portrait');
 
         return $pdf->download("receipt-{$bill->bill_no}.pdf");
     }

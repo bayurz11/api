@@ -4,22 +4,24 @@
     <meta charset="utf-8">
     <title>Struk {{ $bill->bill_no }}</title>
     <style>
-        body { font-family: DejaVu Sans, sans-serif; font-size: 12px; color: #1f2937; }
-        .page { padding: 20px; }
+        @page { margin: 8px 10px 12px; }
+        body { font-family: DejaVu Sans, sans-serif; font-size: 10px; color: #1f2937; margin: 0; }
+        .page { width: 100%; }
         .center { text-align: center; }
-        .logo { max-width: 84px; max-height: 84px; margin-bottom: 10px; }
-        .title { font-size: 18px; font-weight: bold; margin-bottom: 4px; }
+        .logo { max-width: 64px; max-height: 64px; margin-bottom: 8px; }
+        .title { font-size: 15px; font-weight: bold; margin-bottom: 4px; }
         .muted { color: #6b7280; }
-        .section { margin-top: 18px; }
-        .row { width: 100%; margin-bottom: 6px; }
-        .label { width: 58%; display: inline-block; }
-        .value { width: 40%; display: inline-block; text-align: right; }
+        .section { margin-top: 12px; }
+        .row { width: 100%; margin-bottom: 4px; }
+        .label { width: 56%; display: inline-block; }
+        .value { width: 42%; display: inline-block; text-align: right; }
         table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-        th, td { padding: 6px 0; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
-        th { text-align: left; font-size: 11px; color: #6b7280; }
+        th, td { padding: 5px 0; border-bottom: 1px dashed #d1d5db; vertical-align: top; }
+        th { text-align: left; font-size: 9px; color: #6b7280; }
         td.right, th.right { text-align: right; }
         .total { font-weight: bold; }
-        .footer { margin-top: 24px; text-align: center; font-size: 11px; color: #6b7280; }
+        .footer { margin-top: 16px; text-align: center; font-size: 9px; color: #6b7280; }
+        .separator { border-top: 1px dashed #9ca3af; margin: 10px 0; }
     </style>
 </head>
 <body>
@@ -42,6 +44,8 @@
             <div class="row"><span class="label">Tamu</span><span class="value">{{ $bill->guest_count }}</span></div>
             <div class="row"><span class="label">Status</span><span class="value">{{ $bill->status }}</span></div>
         </div>
+
+        <div class="separator"></div>
 
         <div class="section">
             <table>
@@ -72,6 +76,8 @@
             <div class="row total"><span class="label">Total Akhir</span><span class="value">Rp {{ number_format((float) $bill->grand_total, 0, ',', '.') }}</span></div>
             <div class="row total"><span class="label">Sudah Dibayar</span><span class="value">Rp {{ number_format((float) $bill->paid_total, 0, ',', '.') }}</span></div>
         </div>
+
+        <div class="separator"></div>
 
         <div class="section">
             <table>
