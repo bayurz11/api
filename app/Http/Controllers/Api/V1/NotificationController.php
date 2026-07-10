@@ -11,6 +11,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 class NotificationController extends Controller
 {
@@ -19,6 +20,7 @@ class NotificationController extends Controller
     private const CHANNEL_WAITER = 'waiter_ready';
     private const CHANNEL_QR = 'qr_pending';
     private const CHANNEL_CASHIER = 'cashier_bill';
+    private ?bool $notificationReadsTableExists = null;
 
     public function index(Request $request): JsonResponse
     {
@@ -64,6 +66,18 @@ class NotificationController extends Controller
         $user = $request->user();
         abort_unless(in_array($validated['channel'], $this->allowedChannelsForUser($user), true), 403);
 
+        if (! $this->hasNotificationReadsTable()) {
+            return response()->json([
+                'message' => 'Fitur baca notifikasi belum aktif di server.',
+                'data' => [
+                    'channel' => $validated['channel'],
+                    'entity_type' => $validated['entity_type'],
+                    'entity_id' => $validated['entity_id'],
+                    'read_at' => null,
+                ],
+            ]);
+        }
+
         $read = NotificationRead::query()->updateOrCreate(
             [
                 'user_id' => $user->id,
@@ -105,6 +119,16 @@ class NotificationController extends Controller
 
         $channels = $requestedChannel !== null ? [$requestedChannel] : $allowedChannels;
         $notifications = $this->buildNotifications($channels, 500);
+
+        if (! $this->hasNotificationReadsTable()) {
+            return response()->json([
+                'message' => 'Fitur baca notifikasi belum aktif di server.',
+                'data' => [
+                    'marked_count' => 0,
+                    'channel' => $requestedChannel,
+                ],
+            ]);
+        }
 
         if ($notifications->isEmpty()) {
             return response()->json([
@@ -172,6 +196,15 @@ class NotificationController extends Controller
     {
         if ($items->isEmpty()) {
             return $items;
+        }
+
+        if (! $this->hasNotificationReadsTable()) {
+            return $items->map(function (array $item) {
+                $item['is_read'] = false;
+                $item['read_at'] = null;
+
+                return $item;
+            });
         }
 
         $reads = NotificationRead::query()
@@ -484,5 +517,18 @@ class NotificationController extends Controller
             'cashier_action_unread_count' => 0,
             'total_unread_count' => 0,
         ];
+    }
+
+    private function hasNotificationReadsTable(): bool
+    {
+        if ($this->notificationReadsTableExists !== null) {
+            return $this->notificationReadsTableExists;
+        }
+
+        try {
+            return $this->notificationReadsTableExists = Schema::hasTable('notification_reads');
+        } catch (\Throwable) {
+            return $this->notificationReadsTableExists = false;
+        }
     }
 }
