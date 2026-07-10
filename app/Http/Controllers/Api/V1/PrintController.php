@@ -16,6 +16,44 @@ class PrintController extends Controller
 {
     private const THERMAL_PAPER_80MM = [0, 0, 226.77, 900];
 
+    public function printers(): JsonResponse
+    {
+        $printers = Printer::query()
+            ->with([
+                'printJobs' => fn ($query) => $query
+                    ->latest('id')
+                    ->limit(1),
+            ])
+            ->orderByRaw('CASE WHEN station_type IS NULL THEN 0 ELSE 1 END')
+            ->orderBy('name')
+            ->get()
+            ->map(function (Printer $printer): array {
+                $latestJob = $printer->printJobs->first();
+
+                return [
+                    'id' => $printer->id,
+                    'name' => $printer->name,
+                    'printer_type' => $printer->printer_type,
+                    'connection_type' => $printer->connection_type,
+                    'address' => $printer->address,
+                    'station_type' => $printer->station_type,
+                    'is_active' => (bool) $printer->is_active,
+                    'status_label' => $printer->is_active ? 'Aktif' : 'Nonaktif',
+                    'latest_job' => $latestJob ? [
+                        'id' => $latestJob->id,
+                        'job_type' => $latestJob->job_type,
+                        'status' => $latestJob->status,
+                        'created_at' => optional($latestJob->created_at)->toISOString(),
+                    ] : null,
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'data' => $printers,
+        ]);
+    }
+
     public function kitchenTicket(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -154,6 +192,33 @@ class PrintController extends Controller
             ->paginate($request->integer('per_page', 15));
 
         return response()->json($jobs);
+    }
+
+    public function testPrinter(Request $request, Printer $printer): JsonResponse
+    {
+        abort_if(! $printer->is_active, 422, 'Printer tidak aktif.');
+
+        $job = $this->createPrintJob(
+            request: $request,
+            jobType: 'TEST_RECEIPT',
+            referenceType: 'printer',
+            referenceId: $printer->id,
+            printerId: $printer->id,
+            payload: [
+                'title' => 'Tes Printer',
+                'printer_name' => $printer->name,
+                'station_type' => $printer->station_type,
+                'connection_type' => $printer->connection_type,
+                'address' => $printer->address,
+                'printed_at' => now()->toDateTimeString(),
+                'message' => 'Jika struk tes ini keluar, koneksi printer siap dipakai.',
+            ],
+        );
+
+        return response()->json([
+            'message' => 'Tes printer berhasil dikirim ke antrean cetak.',
+            'data' => $job,
+        ], 201);
     }
 
     private function createPrintJob(

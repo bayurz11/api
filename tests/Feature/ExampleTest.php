@@ -8,6 +8,7 @@ use App\Models\Menu;
 use App\Models\MenuCategory;
 use App\Models\OrderItem;
 use App\Models\Payment;
+use App\Models\Printer;
 use App\Models\QrOrder;
 use App\Models\Reservation;
 use App\Models\Setting;
@@ -745,6 +746,18 @@ class ExampleTest extends TestCase
         $this->actingAs($cashier, 'sanctum')
             ->getJson('/api/v1/print-jobs')
             ->assertOk();
+
+        $printerId = Printer::query()->where('name', 'Cashier Printer')->value('id');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->getJson('/api/v1/printers')
+            ->assertOk()
+            ->assertJsonPath('data.0.name', 'Cashier Printer');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/printers/{$printerId}/test")
+            ->assertCreated()
+            ->assertJsonPath('data.job_type', 'TEST_RECEIPT');
     }
 
     /**
