@@ -34,6 +34,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::post('/notifications/mark-read', [NotificationController::class, 'markRead']);
+        Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
         Route::get('/dashboard', DashboardController::class)->middleware('permission:dashboard.view');
 
         Route::middleware('permission:reports.view')->group(function () {

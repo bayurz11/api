@@ -72,16 +72,18 @@ class ExampleTest extends TestCase
         $this->seed();
 
         $user = User::query()->where('username', 'kasir01')->firstOrFail();
+        $tableCount = Table::query()->count();
+        $availableMenuCount = Menu::query()->where('is_available', true)->count();
 
         $tablesResponse = $this->actingAs($user, 'sanctum')->getJson('/api/v1/tables');
         $tablesResponse
             ->assertOk()
-            ->assertJsonCount(3, 'data');
+            ->assertJsonCount($tableCount, 'data');
 
         $menusResponse = $this->actingAs($user, 'sanctum')->getJson('/api/v1/menus?available_only=1');
         $menusResponse
             ->assertOk()
-            ->assertJsonCount(3, 'data');
+            ->assertJsonCount($availableMenuCount, 'data');
     }
 
     /**
@@ -1538,13 +1540,66 @@ class ExampleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('summary.ready_items_count', 1)
             ->assertJsonPath('summary.pending_qr_orders_count', 1)
-            ->assertJsonPath('summary.cashier_action_bills_count', 1);
+            ->assertJsonPath('summary.cashier_action_bills_count', 0)
+            ->assertJsonPath('summary.total_unread_count', 2)
+            ->assertJsonCount(2, 'data');
 
         $channels = collect($response->json('data'))->pluck('channel')->all();
 
         $this->assertContains('waiter_ready', $channels);
         $this->assertContains('qr_pending', $channels);
-        $this->assertContains('cashier_bill', $channels);
+        $this->assertNotContains('cashier_bill', $channels);
+
+        $readyNotification = collect($response->json('data'))
+            ->firstWhere('channel', 'waiter_ready');
+
+        $this->assertNotNull($readyNotification);
+        $this->assertFalse($readyNotification['is_read']);
+
+        $this->actingAs($waiter, 'sanctum')
+            ->postJson('/api/v1/notifications/mark-read', [
+                'channel' => $readyNotification['channel'],
+                'entity_type' => $readyNotification['entity_type'],
+                'entity_id' => $readyNotification['entity_id'],
+            ])
+            ->assertOk()
+            ->assertJsonPath('message', 'Notifikasi ditandai sudah dibaca.');
+
+        $afterSingleRead = $this->actingAs($waiter, 'sanctum')
+            ->getJson('/api/v1/notifications');
+
+        $afterSingleRead
+            ->assertOk()
+            ->assertJsonPath('summary.total_unread_count', 1);
+
+        $updatedReadyNotification = collect($afterSingleRead->json('data'))
+            ->firstWhere('channel', 'waiter_ready');
+
+        $this->assertTrue($updatedReadyNotification['is_read']);
+        $this->assertNotNull($updatedReadyNotification['read_at']);
+
+        $this->actingAs($waiter, 'sanctum')
+            ->postJson('/api/v1/notifications/mark-all-read')
+            ->assertOk()
+            ->assertJsonPath('message', 'Semua notifikasi berhasil ditandai sudah dibaca.')
+            ->assertJsonPath('data.marked_count', 2);
+
+        $afterMarkAll = $this->actingAs($waiter, 'sanctum')
+            ->getJson('/api/v1/notifications');
+
+        $afterMarkAll
+            ->assertOk()
+            ->assertJsonPath('summary.total_unread_count', 0);
+
+        $cashierResponse = $this->actingAs($cashier, 'sanctum')
+            ->getJson('/api/v1/notifications');
+
+        $cashierResponse
+            ->assertOk()
+            ->assertJsonPath('summary.cashier_action_bills_count', 1);
+
+        $cashierChannels = collect($cashierResponse->json('data'))->pluck('channel')->all();
+        $this->assertContains('cashier_bill', $cashierChannels);
     }
 
 }
