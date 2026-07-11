@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\Api\V1\RestaurantProfileController;
 use App\Models\Bill;
 use App\Models\Customer;
 use App\Models\Menu;
@@ -834,6 +835,10 @@ class ExampleTest extends TestCase
         $this->assertSame('Jl. Contoh No. 12, Jakarta', Setting::getValue('restaurant_address'));
         $this->get('/api/v1/restaurant-profile/logo')->assertOk();
 
+        $logoPath = Setting::getValue('restaurant_logo_path');
+        $this->assertIsString($logoPath);
+        $this->assertTrue(Storage::disk('public')->exists($logoPath));
+
         $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
             'bill_type' => 'DINE_IN',
             'table_id' => $table->id,
@@ -850,6 +855,19 @@ class ExampleTest extends TestCase
             'payment_method' => 'CASH',
             'amount' => 28000,
         ])->assertCreated();
+
+        $bill = Bill::query()->with(['table', 'customer', 'items', 'payments'])->findOrFail($billId);
+        $profile = RestaurantProfileController::profilePayload();
+        $profile['restaurant_logo_path'] = Storage::disk('public')->path($logoPath);
+
+        $html = view('pdf.receipt', [
+            'bill' => $bill,
+            'profile' => $profile,
+            'customerName' => $bill->customer?->name ?: $bill->customer_name,
+        ])->render();
+
+        $this->assertStringContainsString('<img src="', $html);
+        $this->assertStringContainsString('class="logo"', $html);
 
         $pdfResponse = $this->actingAs($cashier, 'sanctum')
             ->get("/api/v1/print/receipt/{$billId}/pdf");

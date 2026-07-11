@@ -7,10 +7,12 @@ use App\Models\Bill;
 use App\Models\Order;
 use App\Models\Printer;
 use App\Models\PrintJob;
+use App\Models\Setting;
 use App\Support\AuditLogger;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class PrintController extends Controller
 {
@@ -172,6 +174,12 @@ class PrintController extends Controller
         abort_if((float) $bill->paid_total <= 0, 422, 'Bill belum memiliki pembayaran untuk dicetak.');
 
         $profile = RestaurantProfileController::profilePayload();
+        $logoPath = Setting::getValue('restaurant_logo_path');
+        $profile['restaurant_logo_path'] = is_string($logoPath)
+            && $logoPath !== ''
+            && Storage::disk('public')->exists($logoPath)
+            ? Storage::disk('public')->path($logoPath)
+            : null;
         $customerName = $bill->customer?->name ?: $bill->customer_name;
 
         $pdf = Pdf::loadView('pdf.receipt', [
