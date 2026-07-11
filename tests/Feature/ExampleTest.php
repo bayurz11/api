@@ -819,7 +819,14 @@ class ExampleTest extends TestCase
             ->getJson('/api/v1/print-jobs')
             ->assertOk();
 
-        $printerId = Printer::query()->where('name', 'Cashier Printer')->value('id');
+        $printerId = Printer::query()->create([
+            'name' => 'Cashier Printer',
+            'printer_type' => 'ESC_POS',
+            'connection_type' => 'LAN',
+            'address' => '10.10.10.10',
+            'station_type' => null,
+            'is_active' => true,
+        ])->id;
 
         $this->actingAs($cashier, 'sanctum')
             ->getJson('/api/v1/printers')
@@ -1073,7 +1080,6 @@ class ExampleTest extends TestCase
         $category = MenuCategory::query()->where('station_type', 'BAR')->firstOrFail();
 
         $tableResponse = $this->actingAs($owner, 'sanctum')->postJson('/api/v1/tables', [
-            'code' => 'T99',
             'name' => 'VIP 99',
             'capacity' => 8,
             'area' => 'VIP',
@@ -1081,7 +1087,7 @@ class ExampleTest extends TestCase
 
         $tableResponse
             ->assertCreated()
-            ->assertJsonPath('data.code', 'T99');
+            ->assertJsonPath('data.code', 'T04');
 
         $tableId = $tableResponse->json('data.id');
 
@@ -1094,7 +1100,6 @@ class ExampleTest extends TestCase
 
         $menuResponse = $this->actingAs($owner, 'sanctum')->postJson('/api/v1/menus', [
             'category_id' => $category->id,
-            'sku' => 'MNM-999',
             'name' => 'Mocktail Test',
             'price' => 22000,
             'station_type' => 'BAR',
@@ -1102,7 +1107,7 @@ class ExampleTest extends TestCase
 
         $menuResponse
             ->assertCreated()
-            ->assertJsonPath('data.sku', 'MNM-999');
+            ->assertJsonPath('data.sku', 'MNM-016');
 
         $menuId = $menuResponse->json('data.id');
 
@@ -1464,7 +1469,6 @@ class ExampleTest extends TestCase
 
         $this->actingAs($owner, 'sanctum')->postJson('/api/v1/menus', [
             'category_id' => $barCategory->id,
-            'sku' => 'MNM-998',
             'name' => 'Mismatch Drink',
             'price' => 18000,
             'station_type' => 'KITCHEN',
@@ -1481,7 +1485,6 @@ class ExampleTest extends TestCase
 
         $this->actingAs($owner, 'sanctum')->postJson('/api/v1/menus', [
             'category_id' => $inactiveCategory->id,
-            'sku' => 'MNM-997',
             'name' => 'Inactive Category Drink',
             'price' => 18000,
             'station_type' => 'BAR',
@@ -1491,7 +1494,6 @@ class ExampleTest extends TestCase
 
         $menuResponse = $this->actingAs($owner, 'sanctum')->postJson('/api/v1/menus', [
             'category_id' => $barCategory->id,
-            'sku' => 'MNM-996',
             'name' => 'Valid Drink',
             'price' => 19000,
             'station_type' => 'BAR',

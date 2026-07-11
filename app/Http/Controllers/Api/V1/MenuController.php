@@ -9,6 +9,8 @@ use App\Support\AuditLogger;
 use App\Support\InventoryManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class MenuController extends Controller
@@ -46,7 +48,6 @@ class MenuController extends Controller
     {
         $validated = $request->validate([
             'category_id' => ['required', 'integer', 'exists:menu_categories,id'],
-            'sku' => ['required', 'string', 'max:50', 'unique:menus,sku'],
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'image_url' => ['nullable', 'string'],
@@ -58,18 +59,20 @@ class MenuController extends Controller
 
         $category = $this->resolveValidCategory($validated['category_id'], $validated['station_type']);
 
-        $menu = Menu::query()->create([
-            'category_id' => $validated['category_id'],
-            'sku' => $validated['sku'],
-            'name' => $validated['name'],
-            'description' => $validated['description'] ?? null,
-            'image_url' => $validated['image_url'] ?? null,
-            'price' => $validated['price'],
-            'station_type' => $validated['station_type'],
-            'is_available' => $validated['is_available'] ?? true,
-            'is_stock_available' => true,
-            'is_active' => $validated['is_active'] ?? true,
-        ]);
+        $menu = DB::transaction(function () use ($validated, $category) {
+            return Menu::query()->create([
+                'category_id' => $validated['category_id'],
+                'sku' => $this->generateSkuForCategory($category),
+                'name' => $validated['name'],
+                'description' => $validated['description'] ?? null,
+                'image_url' => $validated['image_url'] ?? null,
+                'price' => $validated['price'],
+                'station_type' => $validated['station_type'],
+                'is_available' => $validated['is_available'] ?? true,
+                'is_stock_available' => true,
+                'is_active' => $validated['is_active'] ?? true,
+            ]);
+        });
 
         InventoryManager::syncMenuStockAvailability($menu);
 
@@ -92,7 +95,6 @@ class MenuController extends Controller
     {
         $validated = $request->validate([
             'category_id' => ['sometimes', 'required', 'integer', 'exists:menu_categories,id'],
-            'sku' => ['sometimes', 'required', 'string', 'max:50', Rule::unique('menus', 'sku')->ignore($menu->id)],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'image_url' => ['nullable', 'string'],
@@ -109,8 +111,16 @@ class MenuController extends Controller
 
         $before = $menu->only(['category_id', 'sku', 'name', 'description', 'image_url', 'price', 'station_type', 'is_available', 'is_active']);
 
-        $menu->fill($validated);
-        $menu->save();
+        DB::transaction(function () use ($menu, $validated, $resolvedCategoryId) {
+            $menu->fill($validated);
+
+            if (array_key_exists('category_id', $validated) && $resolvedCategoryId !== $menu->getOriginal('category_id')) {
+                $category = MenuCategory::query()->findOrFail($resolvedCategoryId);
+                $menu->sku = $this->generateSkuForCategory($category, $menu->id);
+            }
+
+            $menu->save();
+        });
         InventoryManager::syncMenuStockAvailability($menu);
 
         AuditLogger::log(
@@ -165,5 +175,43 @@ class MenuController extends Controller
         );
 
         return $category;
+    }
+
+    private function generateSkuForCategory(MenuCategory $category, ?int $ignoreMenuId = null): string
+    {
+        $prefix = $this->resolveSkuPrefix($category->name);
+        $skus = Menu::query()
+            ->when($ignoreMenuId !== null, fn ($query) => $query->whereKeyNot($ignoreMenuId))
+            ->where('sku', 'like', "{$prefix}-%")
+            ->pluck('sku');
+
+        $maxSequence = 0;
+
+        foreach ($skus as $sku) {
+            if (preg_match('/^'.preg_quote($prefix, '/').'-(\d+)$/', $sku, $matches) === 1) {
+                $maxSequence = max($maxSequence, (int) $matches[1]);
+            }
+        }
+
+        return sprintf('%s-%03d', $prefix, $maxSequence + 1);
+    }
+
+    private function resolveSkuPrefix(string $categoryName): string
+    {
+        $normalized = Str::upper(trim(Str::ascii($categoryName)));
+
+        if (str_contains($normalized, 'MAKAN')) {
+            return 'MKN';
+        }
+
+        if (str_contains($normalized, 'MINUM')) {
+            return 'MNM';
+        }
+
+        $letters = preg_replace('/[^A-Z]/', '', $normalized) ?? '';
+        $consonants = preg_replace('/[AIUEO]/', '', $letters) ?? '';
+        $prefix = Str::substr($consonants.$letters, 0, 3);
+
+        return str_pad($prefix, 3, 'X');
     }
 }

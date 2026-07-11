@@ -134,37 +134,6 @@ class DemoDataSeeder extends Seeder
             ['menu_id' => $esJerukId, 'ingredient_id' => $ingredients['BHN-008'], 'qty_per_portion' => 120, 'created_at' => $timestamp, 'updated_at' => $timestamp],
         ], ['menu_id', 'ingredient_id'], ['qty_per_portion', 'updated_at']);
 
-        foreach ([
-            [
-                'name' => 'Kitchen Printer',
-                'printer_type' => 'ESC_POS',
-                'connection_type' => 'LAN',
-                'address' => '192.168.1.101',
-                'station_type' => 'KITCHEN',
-                'is_active' => true,
-            ],
-            [
-                'name' => 'Bar Printer',
-                'printer_type' => 'ESC_POS',
-                'connection_type' => 'LAN',
-                'address' => '192.168.1.102',
-                'station_type' => 'BAR',
-                'is_active' => true,
-            ],
-            [
-                'name' => 'Cashier Printer',
-                'printer_type' => 'ESC_POS',
-                'connection_type' => 'LAN',
-                'address' => '192.168.1.103',
-                'station_type' => null,
-                'is_active' => true,
-            ],
-        ] as $printer) {
-            DB::table('printers')->updateOrInsert(
-                ['name' => $printer['name']],
-                $printer,
-            );
-        }
     }
 
     /**

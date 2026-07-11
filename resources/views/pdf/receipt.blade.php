@@ -43,6 +43,7 @@
             <div class="row"><span class="label">Meja</span><span class="value">{{ $bill->table?->name ?: '-' }}</span></div>
             <div class="row"><span class="label">Tamu</span><span class="value">{{ $bill->guest_count }}</span></div>
             <div class="row"><span class="label">Status</span><span class="value">{{ $bill->status }}</span></div>
+            <div class="row"><span class="label">Waktu Cetak</span><span class="value">{{ ($printedAt ?? now())->format('d/m/Y H:i:s') }}</span></div>
         </div>
 
         <div class="separator"></div>

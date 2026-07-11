@@ -8,7 +8,6 @@
         body { font-family: DejaVu Sans, sans-serif; font-size: 10px; color: #1f2937; margin: 0; }
         .page { width: 100%; }
         .center { text-align: center; }
-        .logo { max-width: 56px; max-height: 56px; margin-bottom: 8px; }
         .title { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
         .subtitle { font-size: 11px; font-weight: bold; margin-bottom: 6px; }
         .muted { color: #6b7280; }
@@ -21,6 +20,8 @@
         th, td { padding: 4px 0; vertical-align: top; }
         th { text-align: left; font-size: 9px; color: #6b7280; border-bottom: 1px dashed #d1d5db; }
         td.right, th.right { text-align: right; }
+        th.check, td.check { width: 18px; text-align: center; }
+        .checkbox { display: inline-block; width: 10px; height: 10px; border: 1px solid #6b7280; border-radius: 2px; }
         .note { font-size: 9px; color: #4b5563; padding-top: 0; }
         .separator { border-top: 1px dashed #9ca3af; margin: 10px 0; }
         .footer { margin-top: 16px; text-align: center; font-size: 9px; color: #6b7280; }
@@ -29,9 +30,6 @@
 <body>
     <div class="page">
         <div class="center">
-            @if(!empty($profile['restaurant_logo_path']) && file_exists($profile['restaurant_logo_path']))
-                <img src="{{ $profile['restaurant_logo_path'] }}" class="logo" alt="Logo Restoran">
-            @endif
             <div class="title">{{ $profile['restaurant_name'] }}</div>
             <div class="subtitle">PRE-BILL / STRUK ORDER</div>
             @if(!empty($profile['restaurant_address']))
@@ -45,7 +43,7 @@
             <div class="row"><span class="label">Pelanggan</span><span class="value">{{ $customerName ?: '-' }}</span></div>
             <div class="row"><span class="label">Meja</span><span class="value">{{ $bill->table?->name ?: '-' }}</span></div>
             <div class="row"><span class="label">Jumlah Tamu</span><span class="value">{{ $bill->guest_count }}</span></div>
-            <div class="row"><span class="label">Waktu Cetak</span><span class="value">{{ now()->format('d/m/Y H:i') }}</span></div>
+            <div class="row"><span class="label">Waktu Cetak</span><span class="value">{{ ($printedAt ?? now())->format('d/m/Y H:i:s') }}</span></div>
         </div>
 
         <div class="separator"></div>
@@ -55,6 +53,7 @@
             <table>
                 <thead>
                     <tr>
+                        <th class="check"></th>
                         <th>Item</th>
                         <th class="right">Qty</th>
                     </tr>
@@ -62,11 +61,13 @@
                 <tbody>
                     @foreach($section['items'] as $item)
                         <tr>
+                            <td class="check"><span class="checkbox"></span></td>
                             <td>{{ $item['menu_name'] }}</td>
                             <td class="right">{{ $item['qty'] }}</td>
                         </tr>
                         @if(!empty($item['notes']))
                             <tr>
+                                <td></td>
                                 <td colspan="2" class="note">Catatan: {{ $item['notes'] }}</td>
                             </tr>
                         @endif

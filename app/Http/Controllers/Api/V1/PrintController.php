@@ -213,6 +213,7 @@ class PrintController extends Controller
         abort_if((float) $bill->paid_total <= 0, 422, 'Bill belum memiliki pembayaran untuk dicetak.');
 
         $profile = RestaurantProfileController::profilePayload();
+        $printedAt = now();
         $logoPath = Setting::getValue('restaurant_logo_path');
         $profile['restaurant_logo_path'] = is_string($logoPath)
             && $logoPath !== ''
@@ -225,6 +226,7 @@ class PrintController extends Controller
             'bill' => $bill,
             'profile' => $profile,
             'customerName' => $customerName,
+            'printedAt' => $printedAt,
         ])->setPaper(self::THERMAL_PAPER_80MM, 'portrait');
 
         return $pdf->download("receipt-{$bill->bill_no}.pdf");
@@ -237,18 +239,14 @@ class PrintController extends Controller
         abort_if($sections->isEmpty(), 422, 'Bill belum memiliki item untuk dicetak.');
 
         $profile = RestaurantProfileController::profilePayload();
-        $logoPath = Setting::getValue('restaurant_logo_path');
-        $profile['restaurant_logo_path'] = is_string($logoPath)
-            && $logoPath !== ''
-            && Storage::disk('public')->exists($logoPath)
-            ? Storage::disk('public')->path($logoPath)
-            : null;
+        $printedAt = now();
 
         $pdf = Pdf::loadView('pdf.pre-bill', [
             'bill' => $bill,
             'profile' => $profile,
             'customerName' => $bill->customer?->name ?: $bill->customer_name,
             'sections' => $sections,
+            'printedAt' => $printedAt,
         ])->setPaper(self::THERMAL_PAPER_80MM, 'portrait');
 
         return $pdf->download("pre-bill-{$bill->bill_no}.pdf");

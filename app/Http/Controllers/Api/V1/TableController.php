@@ -8,6 +8,7 @@ use App\Support\AuditLogger;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class TableController extends Controller
@@ -43,7 +44,6 @@ class TableController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'code' => ['required', 'string', 'max:50', 'unique:tables,code'],
             'name' => ['required', 'string', 'max:255'],
             'capacity' => ['nullable', 'integer', 'min:1'],
             'area' => ['nullable', 'string', 'max:255'],
@@ -51,14 +51,16 @@ class TableController extends Controller
             'is_active' => ['nullable', 'boolean'],
         ]);
 
-        $table = Table::query()->create([
-            'code' => $validated['code'],
-            'name' => $validated['name'],
-            'capacity' => $validated['capacity'] ?? 1,
-            'area' => $validated['area'] ?? null,
-            'status' => $validated['status'] ?? 'AVAILABLE',
-            'is_active' => $validated['is_active'] ?? true,
-        ]);
+        $table = DB::transaction(function () use ($validated) {
+            return Table::query()->create([
+                'code' => $this->generateNextTableCode(),
+                'name' => $validated['name'],
+                'capacity' => $validated['capacity'] ?? 1,
+                'area' => $validated['area'] ?? null,
+                'status' => $validated['status'] ?? 'AVAILABLE',
+                'is_active' => $validated['is_active'] ?? true,
+            ]);
+        });
 
         AuditLogger::log(
             userId: $request->user()->id,
@@ -173,5 +175,18 @@ class TableController extends Controller
         return response()->json([
             'message' => 'Meja berhasil dihapus.',
         ]);
+    }
+
+    private function generateNextTableCode(): string
+    {
+        $maxSequence = 0;
+
+        foreach (Table::query()->pluck('code') as $code) {
+            if (preg_match('/^T(\d+)$/', $code, $matches) === 1) {
+                $maxSequence = max($maxSequence, (int) $matches[1]);
+            }
+        }
+
+        return sprintf('T%02d', $maxSequence + 1);
     }
 }
