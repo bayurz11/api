@@ -139,6 +139,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware('permission:prints.view')->group(function () {
             Route::get('/printers', [PrintController::class, 'printers']);
             Route::get('/print-jobs', [PrintController::class, 'jobs']);
+            Route::get('/print/pre-bill/{bill}/pdf', [PrintController::class, 'preBillPdf']);
             Route::get('/print/receipt/{bill}/pdf', [PrintController::class, 'receiptPdf']);
         });
 
@@ -146,6 +147,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/printers/{printer}/test', [PrintController::class, 'testPrinter']);
             Route::post('/print/kitchen-ticket', [PrintController::class, 'kitchenTicket']);
             Route::post('/print/bar-ticket', [PrintController::class, 'barTicket']);
+            Route::post('/print/pre-bill', [PrintController::class, 'preBill']);
             Route::post('/print/receipt', [PrintController::class, 'receipt']);
         });
 

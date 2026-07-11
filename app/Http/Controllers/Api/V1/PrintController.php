@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Bill;
+use App\Models\BillItem;
+use App\Models\Menu;
 use App\Models\Order;
 use App\Models\Printer;
 use App\Models\PrintJob;
@@ -12,6 +14,8 @@ use App\Support\AuditLogger;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class PrintController extends Controller
@@ -168,6 +172,41 @@ class PrintController extends Controller
         ], 201);
     }
 
+    public function preBill(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'bill_id' => ['required', 'integer', 'exists:bills,id'],
+            'printer_id' => ['nullable', 'integer', 'exists:printers,id'],
+        ]);
+
+        $bill = Bill::query()->with(['table', 'customer'])->findOrFail($validated['bill_id']);
+        $sections = $this->buildPreBillSections($bill);
+        abort_if($sections->isEmpty(), 422, 'Bill belum memiliki item untuk dicetak.');
+
+        $job = $this->createPrintJob(
+            request: $request,
+            jobType: 'PRE_BILL',
+            referenceType: 'bill',
+            referenceId: $bill->id,
+            printerId: $validated['printer_id'] ?? $this->resolvePrinterId(null),
+            payload: [
+                'bill_no' => $bill->bill_no,
+                'bill_type' => $bill->bill_type,
+                'table' => $bill->table?->name,
+                'guest_count' => $bill->guest_count,
+                'customer_name' => $bill->customer?->name ?: $bill->customer_name,
+                'sections' => $sections->values()->all(),
+                'subtotal' => (float) $bill->subtotal,
+                'printed_at' => now()->toDateTimeString(),
+            ],
+        );
+
+        return response()->json([
+            'message' => 'Print job pre-bill berhasil dibuat.',
+            'data' => $job,
+        ], 201);
+    }
+
     public function receiptPdf(Bill $bill)
     {
         $bill->load(['table', 'customer', 'items', 'payments']);
@@ -189,6 +228,30 @@ class PrintController extends Controller
         ])->setPaper(self::THERMAL_PAPER_80MM, 'portrait');
 
         return $pdf->download("receipt-{$bill->bill_no}.pdf");
+    }
+
+    public function preBillPdf(Bill $bill)
+    {
+        $bill->load(['table', 'customer']);
+        $sections = $this->buildPreBillSections($bill);
+        abort_if($sections->isEmpty(), 422, 'Bill belum memiliki item untuk dicetak.');
+
+        $profile = RestaurantProfileController::profilePayload();
+        $logoPath = Setting::getValue('restaurant_logo_path');
+        $profile['restaurant_logo_path'] = is_string($logoPath)
+            && $logoPath !== ''
+            && Storage::disk('public')->exists($logoPath)
+            ? Storage::disk('public')->path($logoPath)
+            : null;
+
+        $pdf = Pdf::loadView('pdf.pre-bill', [
+            'bill' => $bill,
+            'profile' => $profile,
+            'customerName' => $bill->customer?->name ?: $bill->customer_name,
+            'sections' => $sections,
+        ])->setPaper(self::THERMAL_PAPER_80MM, 'portrait');
+
+        return $pdf->download("pre-bill-{$bill->bill_no}.pdf");
     }
 
     public function jobs(Request $request): JsonResponse
@@ -267,5 +330,71 @@ class PrintController extends Controller
             ->when($stationType, fn ($query) => $query->where('station_type', $stationType))
             ->where('is_active', true)
             ->value('id');
+    }
+
+    private function buildPreBillSections(Bill $bill): Collection
+    {
+        $items = BillItem::query()
+            ->leftJoin('menus', 'menus.id', '=', 'bill_items.menu_id')
+            ->leftJoin('menu_categories', 'menu_categories.id', '=', 'menus.category_id')
+            ->where('bill_items.bill_id', $bill->id)
+            ->select([
+                'bill_items.id',
+                'bill_items.menu_name',
+                'bill_items.qty',
+                'bill_items.unit_price',
+                'bill_items.line_total',
+                'bill_items.notes',
+                'menus.station_type',
+                'menu_categories.name as category_name',
+                'menu_categories.sort_order as category_sort_order',
+            ])
+            ->orderByRaw('COALESCE(menu_categories.sort_order, 9999)')
+            ->orderBy('menu_categories.name')
+            ->orderBy('bill_items.menu_name')
+            ->get();
+
+        return $items
+            ->map(function ($item): array {
+                $sectionName = $item->category_name
+                    ?: match ($item->station_type) {
+                        'KITCHEN' => 'Makanan',
+                        'BAR' => 'Minuman',
+                        default => 'Lainnya',
+                    };
+
+                return [
+                    'section_name' => $sectionName,
+                    'section_sort_order' => (int) ($item->category_sort_order ?? 9999),
+                    'item' => [
+                        'id' => (int) $item->id,
+                        'menu_name' => $item->menu_name,
+                        'qty' => (int) $item->qty,
+                        'unit_price' => (float) $item->unit_price,
+                        'line_total' => (float) $item->line_total,
+                        'notes' => $item->notes,
+                    ],
+                ];
+            })
+            ->groupBy('section_name')
+            ->map(function (Collection $sectionRows, string $sectionName): array {
+                $items = $sectionRows
+                    ->pluck('item')
+                    ->values();
+
+                return [
+                    'section_name' => $sectionName,
+                    'items_count' => $items->count(),
+                    'total_qty' => $items->sum('qty'),
+                    'subtotal' => (float) $items->sum('line_total'),
+                    'items' => $items->all(),
+                    'sort_order' => (int) $sectionRows->min('section_sort_order'),
+                ];
+            })
+            ->sortBy([
+                ['sort_order', 'asc'],
+                ['section_name', 'asc'],
+            ])
+            ->values();
     }
 }

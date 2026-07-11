@@ -746,7 +746,7 @@ class ExampleTest extends TestCase
     }
 
     /**
-     * Verify print jobs can be created for kitchen, bar, and final receipt.
+     * Verify print jobs can be created for kitchen, bar, pre-bill, and final receipt.
      */
     public function test_print_jobs_flow_work(): void
     {
@@ -781,6 +781,17 @@ class ExampleTest extends TestCase
             ->postJson('/api/v1/print/bar-ticket', ['order_id' => $orderId])
             ->assertCreated()
             ->assertJsonPath('data.job_type', 'BAR_TICKET');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson('/api/v1/print/pre-bill', ['bill_id' => $billId])
+            ->assertCreated()
+            ->assertJsonPath('data.job_type', 'PRE_BILL');
+
+        $preBillPdfResponse = $this->actingAs($cashier, 'sanctum')
+            ->get("/api/v1/print/pre-bill/{$billId}/pdf");
+
+        $preBillPdfResponse->assertOk();
+        $this->assertStringContainsString('application/pdf', $preBillPdfResponse->headers->get('content-type', ''));
 
         $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/payments", [
             'payment_method' => 'CASH',
