@@ -34,4 +34,9 @@ class BillItem extends Model
     {
         return $this->belongsTo(Bill::class);
     }
+
+    public function menu(): BelongsTo
+    {
+        return $this->belongsTo(Menu::class);
+    }
 }

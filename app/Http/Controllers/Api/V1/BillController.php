@@ -126,13 +126,35 @@ class BillController extends Controller
             'table:id,code,name,status',
             'tables:id,code,name,status,capacity,area',
             'customer:id,name,member_code,phone,email',
-            'items',
+            'items.menu.category:id,name,station_type',
             'orders.items',
             'payments',
         ]);
 
+        $payload = $bill->toArray();
+        $payload['items'] = $bill->items
+            ->map(function (BillItem $item): array {
+                $categoryName = $item->menu?->category?->name;
+                $stationType = $item->menu?->station_type;
+
+                if ($categoryName === null || $categoryName === '') {
+                    $categoryName = match ($stationType) {
+                        'KITCHEN' => 'Makanan',
+                        'BAR' => 'Minuman',
+                        default => 'Lainnya',
+                    };
+                }
+
+                return array_merge($item->toArray(), [
+                    'category_name' => $categoryName,
+                    'station_type' => $stationType,
+                ]);
+            })
+            ->values()
+            ->all();
+
         return response()->json([
-            'data' => $bill,
+            'data' => $payload,
         ]);
     }
 
