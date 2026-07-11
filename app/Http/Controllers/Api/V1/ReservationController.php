@@ -17,11 +17,13 @@ class ReservationController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $perPage = min(max($request->integer('per_page', 15), 1), 100);
+
         $reservations = Reservation::query()
             ->with(['customer:id,name,phone,member_code', 'table:id,code,name'])
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
             ->latest('reserved_at')
-            ->paginate($request->integer('per_page', 15));
+            ->paginate($perPage);
 
         return response()->json($reservations);
     }
@@ -33,7 +35,7 @@ class ReservationController extends Controller
             'table_id' => ['nullable', 'integer', 'exists:tables,id'],
             'reserved_at' => ['required', 'date'],
             'guest_count' => ['required', 'integer', 'min:1'],
-            'notes' => ['nullable', 'string'],
+            'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $reservation = Reservation::query()->create([

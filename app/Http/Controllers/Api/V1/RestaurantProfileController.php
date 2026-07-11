@@ -54,9 +54,6 @@ class RestaurantProfileController extends Controller
             'restaurant_logo_url' => is_string($logoPath) && $logoPath !== ''
                 ? Storage::disk('public')->url($logoPath)
                 : null,
-            'restaurant_logo_path' => is_string($logoPath) && $logoPath !== ''
-                ? Storage::disk('public')->path($logoPath)
-                : null,
         ];
     }
 }

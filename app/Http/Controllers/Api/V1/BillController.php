@@ -34,6 +34,8 @@ class BillController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $perPage = min(max($request->integer('per_page', 15), 1), 100);
+
         $bills = Bill::query()
             ->with(['table:id,code,name,status', 'tables:id,code,name,status,capacity,area', 'customer:id,name,member_code,phone'])
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
@@ -49,7 +51,7 @@ class BillController extends Controller
             ->when($request->filled('customer_id'), fn ($query) => $query->where('customer_id', $request->integer('customer_id')))
             ->when($request->filled('bill_type'), fn ($query) => $query->where('bill_type', $request->string('bill_type')))
             ->latest('id')
-            ->paginate($request->integer('per_page', 15));
+            ->paginate($perPage);
 
         return response()->json($bills);
     }

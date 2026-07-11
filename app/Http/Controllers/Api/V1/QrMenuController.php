@@ -69,11 +69,11 @@ class QrMenuController extends Controller
             'customer_name' => ['nullable', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'string', 'max:50'],
             'guest_count' => ['nullable', 'integer', 'min:1'],
-            'notes' => ['nullable', 'string'],
+            'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.menu_id' => ['required', 'integer', 'exists:menus,id'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
-            'items.*.notes' => ['nullable', 'string'],
+            'items.*.notes' => ['nullable', 'string', 'max:255'],
         ]);
 
         $qrOrder = DB::transaction(function () use ($validated, $table) {
@@ -159,11 +159,13 @@ class QrMenuController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $perPage = min(max($request->integer('per_page', 15), 1), 100);
+
         $orders = QrOrder::query()
             ->with(['table:id,code,name,area', 'items'])
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
             ->latest('id')
-            ->paginate($request->integer('per_page', 15));
+            ->paginate($perPage);
 
         return response()->json($orders);
     }

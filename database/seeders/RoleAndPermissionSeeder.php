@@ -19,7 +19,10 @@ class RoleAndPermissionSeeder extends Seeder
         $permissions = [
             'auth.login',
             'dashboard.view',
+            'settings.view',
+            'settings.manage',
             'tables.view',
+            'tables.update-status',
             'tables.manage',
             'menus.view',
             'menus.manage',
@@ -57,7 +60,9 @@ class RoleAndPermissionSeeder extends Seeder
             'Kasir' => [
                 'auth.login',
                 'dashboard.view',
+                'settings.view',
                 'tables.view',
+                'tables.update-status',
                 'menus.view',
                 'customers.view',
                 'customers.manage',
@@ -82,7 +87,9 @@ class RoleAndPermissionSeeder extends Seeder
             'Waiter' => [
                 'auth.login',
                 'dashboard.view',
+                'settings.view',
                 'tables.view',
+                'tables.update-status',
                 'menus.view',
                 'customers.view',
                 'reservations.view',

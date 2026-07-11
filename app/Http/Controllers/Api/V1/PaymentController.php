@@ -38,7 +38,7 @@ class PaymentController extends Controller
         $user = $request->user();
 
         $payment = DB::transaction(function () use ($bill, $validated, $user) {
-            $bill->refresh();
+            $bill = Bill::query()->lockForUpdate()->findOrFail($bill->id);
             $this->ensureBillAcceptsPayment($bill);
             $this->ensureAmountDoesNotOverpay($bill, (float) $validated['amount']);
 
@@ -91,7 +91,7 @@ class PaymentController extends Controller
         $user = $request->user();
 
         $payments = DB::transaction(function () use ($bill, $validated, $user) {
-            $bill->refresh();
+            $bill = Bill::query()->lockForUpdate()->findOrFail($bill->id);
             $this->ensureBillAcceptsPayment($bill);
 
             $splitTotal = collect($validated['payments'])
@@ -152,6 +152,8 @@ class PaymentController extends Controller
         $user = $request->user();
 
         DB::transaction(function () use ($bill, $user) {
+            $bill = Bill::query()->lockForUpdate()->findOrFail($bill->id);
+
             $bill->update([
                 'status' => 'PAID',
                 'closed_at' => $bill->closed_at ?? now(),
@@ -187,11 +189,14 @@ class PaymentController extends Controller
         $user = $request->user();
 
         DB::transaction(function () use ($payment, $validated, $user) {
+            $payment = Payment::query()->lockForUpdate()->findOrFail($payment->id);
+            $bill = Bill::query()->lockForUpdate()->findOrFail($payment->bill_id);
+
             $payment->update([
                 'status' => 'VOID',
             ]);
 
-            $bill = BillTotals::recalculate($payment->bill);
+            $bill = BillTotals::recalculate($bill);
 
             $tableStatus = in_array($bill->status, ['PAID', 'VOID', 'REFUND'], true)
                 ? 'CLEANING'
@@ -231,7 +236,7 @@ class PaymentController extends Controller
         $user = $request->user();
 
         $refundPayment = DB::transaction(function () use ($bill, $validated, $user) {
-            $bill->refresh();
+            $bill = Bill::query()->lockForUpdate()->findOrFail($bill->id);
 
             abort_if((float) $bill->paid_total <= 0, 422, 'Bill tidak memiliki pembayaran yang dapat direfund.');
             abort_if($bill->status === 'REFUND', 422, 'Bill sudah direfund.');

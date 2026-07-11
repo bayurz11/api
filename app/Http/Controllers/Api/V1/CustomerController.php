@@ -13,6 +13,8 @@ class CustomerController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $perPage = min(max($request->integer('per_page', 15), 1), 100);
+
         $customers = Customer::query()
             ->when(
                 $request->filled('search'),
@@ -25,7 +27,7 @@ class CustomerController extends Controller
                 }),
             )
             ->latest('id')
-            ->paginate($request->integer('per_page', 15));
+            ->paginate($perPage);
 
         return response()->json($customers);
     }
@@ -37,7 +39,7 @@ class CustomerController extends Controller
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:255'],
             'member_code' => ['nullable', 'string', 'max:50', 'unique:customers,member_code'],
-            'notes' => ['nullable', 'string'],
+            'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $customer = Customer::query()->create([
@@ -86,7 +88,7 @@ class CustomerController extends Controller
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:255'],
             'member_code' => ['nullable', 'string', 'max:50', Rule::unique('customers', 'member_code')->ignore($customer->id)],
-            'notes' => ['nullable', 'string'],
+            'notes' => ['nullable', 'string', 'max:1000'],
             'reward_points' => ['sometimes', 'integer', 'min:0'],
         ]);
 

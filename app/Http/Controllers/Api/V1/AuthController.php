@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -31,7 +32,14 @@ class AuthController extends Controller
             ]);
         }
 
-        $token = $user->createToken('mobile-app')->plainTextToken;
+        $user->tokens()->where('name', 'mobile-app')->delete();
+
+        $expirationMinutes = max((int) env('SANCTUM_TOKEN_EXPIRATION_MINUTES', 10080), 1);
+        $token = $user->createToken(
+            'mobile-app',
+            ['*'],
+            now()->addMinutes($expirationMinutes),
+        )->plainTextToken;
 
         return response()->json([
             'token' => $token,
@@ -70,7 +78,13 @@ class AuthController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()?->delete();
+        $user = $request->user();
+
+        if (! $user) {
+            throw new AuthenticationException();
+        }
+
+        $user->currentAccessToken()?->delete();
 
         return response()->json([
             'message' => 'Logout berhasil.',

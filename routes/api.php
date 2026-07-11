@@ -25,10 +25,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::get('/health', HealthController::class);
-    Route::post('/auth/login', [AuthController::class, 'login']);
+    Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::get('/qr-menu/{tableCode}', [QrMenuController::class, 'menu']);
-    Route::post('/qr-menu/{tableCode}/checkout', [QrMenuController::class, 'checkout']);
-    Route::get('/qr-menu/orders/{guestToken}', [QrMenuController::class, 'status']);
+    Route::post('/qr-menu/{tableCode}/checkout', [QrMenuController::class, 'checkout'])->middleware('throttle:qr-checkout');
+    Route::get('/qr-menu/orders/{guestToken}', [QrMenuController::class, 'status'])->middleware('throttle:qr-status');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -42,12 +42,21 @@ Route::prefix('v1')->group(function () {
             Route::get('/audit-logs', [AuditLogController::class, 'index']);
             Route::get('/reports/sales-summary', [ReportController::class, 'salesSummary']);
             Route::get('/reports/sales-summary/export', [ReportController::class, 'exportSalesSummary']);
+        });
+
+        Route::middleware('permission:settings.view')->group(function () {
             Route::get('/settings/restaurant-profile', [RestaurantProfileController::class, 'show']);
+        });
+
+        Route::middleware('permission:settings.manage')->group(function () {
             Route::post('/settings/restaurant-profile', [RestaurantProfileController::class, 'update']);
         });
 
         Route::middleware('permission:tables.view')->group(function () {
             Route::get('/tables', [TableController::class, 'index']);
+        });
+
+        Route::middleware('permission:tables.update-status')->group(function () {
             Route::post('/tables/{table}/mark-ready', [TableController::class, 'markReady']);
             Route::post('/tables/{table}/mark-read', [TableController::class, 'markReady']);
         });

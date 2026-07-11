@@ -185,11 +185,13 @@ class PrintController extends Controller
 
     public function jobs(Request $request): JsonResponse
     {
+        $perPage = min(max($request->integer('per_page', 15), 1), 100);
+
         $jobs = PrintJob::query()
             ->with('printer:id,name,station_type')
             ->when($request->filled('job_type'), fn ($query) => $query->where('job_type', $request->string('job_type')))
             ->latest('id')
-            ->paginate($request->integer('per_page', 15));
+            ->paginate($perPage);
 
         return response()->json($jobs);
     }
