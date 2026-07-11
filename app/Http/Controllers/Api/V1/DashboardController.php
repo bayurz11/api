@@ -16,28 +16,34 @@ class DashboardController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $today = now()->toDateString();
-        $sevenDaysAgo = now()->copy()->subDays(6)->toDateString();
-        $previousSevenDaysAgo = now()->copy()->subDays(13)->toDateString();
-        $previousWindowEnd = now()->copy()->subDays(7)->toDateString();
+        $todayStart = now()->startOfDay();
+        $tomorrowStart = now()->addDay()->startOfDay();
+        $sevenDaysStart = now()->subDays(6)->startOfDay();
+        $previousSevenDaysStart = now()->subDays(13)->startOfDay();
+        $previousWindowEnd = now()->subDays(6)->startOfDay();
 
         $todaySales = (float) DB::table('payments')
-            ->whereDate('paid_at', $today)
+            ->where('paid_at', '>=', $todayStart)
+            ->where('paid_at', '<', $tomorrowStart)
             ->where('status', 'PAID')
             ->sum('amount');
 
         $todayBills = (int) DB::table('payments')
-            ->whereDate('paid_at', $today)
+            ->where('paid_at', '>=', $todayStart)
+            ->where('paid_at', '<', $tomorrowStart)
             ->where('status', 'PAID')
             ->distinct('bill_id')
             ->count('bill_id');
 
         $previousSales = (float) DB::table('payments')
-            ->whereBetween(DB::raw('DATE(paid_at)'), [$previousSevenDaysAgo, $previousWindowEnd])
+            ->where('paid_at', '>=', $previousSevenDaysStart)
+            ->where('paid_at', '<', $previousWindowEnd)
             ->where('status', 'PAID')
             ->sum('amount');
 
         $currentSevenDaySales = (float) DB::table('payments')
-            ->whereBetween(DB::raw('DATE(paid_at)'), [$sevenDaysAgo, $today])
+            ->where('paid_at', '>=', $sevenDaysStart)
+            ->where('paid_at', '<', $tomorrowStart)
             ->where('status', 'PAID')
             ->sum('amount');
 
@@ -46,7 +52,8 @@ class DashboardController extends Controller
             : (($currentSevenDaySales - $previousSales) / $previousSales) * 100;
 
         $dailyTrend = DB::table('payments')
-            ->whereBetween(DB::raw('DATE(paid_at)'), [$sevenDaysAgo, $today])
+            ->where('paid_at', '>=', $sevenDaysStart)
+            ->where('paid_at', '<', $tomorrowStart)
             ->where('status', 'PAID')
             ->selectRaw('DATE(paid_at) as date')
             ->selectRaw('SUM(amount) as gross_total')
@@ -57,7 +64,7 @@ class DashboardController extends Controller
             ->keyBy('date');
 
         $trendPayload = collect(range(0, 6))
-            ->map(function (int $offset) use ($sevenDaysAgo, $dailyTrend) {
+            ->map(function (int $offset) use ($dailyTrend) {
                 $date = now()->copy()->subDays(6 - $offset)->toDateString();
                 $row = $dailyTrend->get($date);
 
@@ -72,7 +79,8 @@ class DashboardController extends Controller
 
         $topItems = DB::table('bill_items')
             ->leftJoin('menus', 'menus.id', '=', 'bill_items.menu_id')
-            ->whereDate('bill_items.created_at', $today)
+            ->where('bill_items.created_at', '>=', $todayStart)
+            ->where('bill_items.created_at', '<', $tomorrowStart)
             ->select('bill_items.menu_name')
             ->selectRaw('COALESCE(menus.station_type, \'GENERAL\') as station_type')
             ->selectRaw('SUM(bill_items.qty) as qty_sold')
@@ -90,7 +98,8 @@ class DashboardController extends Controller
             ->values();
 
         $paymentMethods = DB::table('payments')
-            ->whereDate('paid_at', $today)
+            ->where('paid_at', '>=', $todayStart)
+            ->where('paid_at', '<', $tomorrowStart)
             ->where('status', 'PAID')
             ->select('payment_method')
             ->selectRaw('SUM(amount) as total')
@@ -104,7 +113,8 @@ class DashboardController extends Controller
             ->values();
 
         $billTypes = DB::table('bills')
-            ->whereDate('created_at', $today)
+            ->where('created_at', '>=', $todayStart)
+            ->where('created_at', '<', $tomorrowStart)
             ->select('bill_type')
             ->selectRaw('COUNT(*) as bills_count')
             ->selectRaw('SUM(grand_total) as gross_total')
@@ -134,7 +144,7 @@ class DashboardController extends Controller
 
         $waiterStatusCounts = OrderItem::query()
             ->selectRaw("SUM(CASE WHEN status = 'READY' THEN 1 ELSE 0 END) as ready_to_serve_count")
-            ->selectRaw("SUM(CASE WHEN status = 'SERVED' AND DATE(served_at) = ? THEN 1 ELSE 0 END) as served_today_count", [$today])
+            ->selectRaw("SUM(CASE WHEN status = 'SERVED' AND served_at >= ? AND served_at < ? THEN 1 ELSE 0 END) as served_today_count", [$todayStart, $tomorrowStart])
             ->first();
 
         return response()->json([

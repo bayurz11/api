@@ -7,6 +7,7 @@ use App\Models\Payment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
@@ -104,8 +105,12 @@ class ReportController extends Controller
 
         abort_if($dateFrom > $dateTo, 422, 'Tanggal mulai tidak boleh melebihi tanggal akhir.');
 
+        $rangeStart = Carbon::parse($dateFrom)->startOfDay();
+        $rangeEnd = Carbon::parse($dateTo)->addDay()->startOfDay();
+
         $paymentsBase = Payment::query()
-            ->whereBetween(DB::raw('DATE(paid_at)'), [$dateFrom, $dateTo]);
+            ->where('paid_at', '>=', $rangeStart)
+            ->where('paid_at', '<', $rangeEnd);
 
         $grossSales = (clone $paymentsBase)
             ->where('status', 'PAID')
@@ -150,7 +155,8 @@ class ReportController extends Controller
 
         $billTypes = DB::table('payments')
             ->join('bills', 'bills.id', '=', 'payments.bill_id')
-            ->whereBetween(DB::raw('DATE(payments.paid_at)'), [$dateFrom, $dateTo])
+            ->where('payments.paid_at', '>=', $rangeStart)
+            ->where('payments.paid_at', '<', $rangeEnd)
             ->where('payments.status', 'PAID')
             ->select('bills.bill_type')
             ->selectRaw('SUM(payments.amount) as gross_total')
@@ -168,7 +174,8 @@ class ReportController extends Controller
         $topItems = DB::table('bill_items')
             ->join('bills', 'bills.id', '=', 'bill_items.bill_id')
             ->join('payments', 'payments.bill_id', '=', 'bills.id')
-            ->whereBetween(DB::raw('DATE(payments.paid_at)'), [$dateFrom, $dateTo])
+            ->where('payments.paid_at', '>=', $rangeStart)
+            ->where('payments.paid_at', '<', $rangeEnd)
             ->where('payments.status', 'PAID')
             ->select('bill_items.menu_id', 'bill_items.menu_name')
             ->selectRaw('SUM(bill_items.qty) as total_qty')
@@ -187,7 +194,8 @@ class ReportController extends Controller
             ->values();
 
         $dailyTrend = DB::table('payments')
-            ->whereBetween(DB::raw('DATE(paid_at)'), [$dateFrom, $dateTo])
+            ->where('paid_at', '>=', $rangeStart)
+            ->where('paid_at', '<', $rangeEnd)
             ->selectRaw('DATE(paid_at) as report_date')
             ->selectRaw("SUM(CASE WHEN status = 'PAID' THEN amount ELSE 0 END) as gross_total")
             ->selectRaw("SUM(CASE WHEN status = 'REFUND' THEN amount ELSE 0 END) as refund_total")
@@ -207,7 +215,8 @@ class ReportController extends Controller
         $topTables = DB::table('payments')
             ->join('bills', 'bills.id', '=', 'payments.bill_id')
             ->leftJoin('tables', 'tables.id', '=', 'bills.table_id')
-            ->whereBetween(DB::raw('DATE(payments.paid_at)'), [$dateFrom, $dateTo])
+            ->where('payments.paid_at', '>=', $rangeStart)
+            ->where('payments.paid_at', '<', $rangeEnd)
             ->where('payments.status', 'PAID')
             ->select('tables.id as table_id', 'tables.code as table_code', 'tables.name as table_name')
             ->selectRaw('SUM(payments.amount) as gross_total')
