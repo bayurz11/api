@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Table extends Model
@@ -29,6 +30,11 @@ class Table extends Model
     public function bills(): HasMany
     {
         return $this->hasMany(Bill::class);
+    }
+
+    public function linkedBills(): BelongsToMany
+    {
+        return $this->belongsToMany(Bill::class, 'bill_tables')->withTimestamps();
     }
 
     public function reservations(): HasMany

@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Bill;
 use App\Models\Deposit;
 use App\Models\Reservation;
-use App\Models\Table;
 use App\Support\AuditLogger;
+use App\Support\BillTableManager;
 use App\Support\SequenceNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -97,10 +97,9 @@ class ReservationController extends Controller
 
         $bill = DB::transaction(function () use ($reservation, $request) {
             if ($reservation->table_id) {
-                $openBillExists = Bill::query()
-                    ->where('table_id', $reservation->table_id)
-                    ->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID', 'SERVED'])
-                    ->exists();
+                $openBillExists = BillTableManager::activeBillExistsOnAnyTable([
+                    (int) $reservation->table_id,
+                ]);
 
                 abort_if($openBillExists, 422, 'Meja reservasi sudah memiliki bill aktif.');
             }
@@ -124,7 +123,8 @@ class ReservationController extends Controller
             $reservation->update(['status' => 'CONVERTED']);
 
             if ($bill->table_id) {
-                Table::query()->whereKey($bill->table_id)->update(['status' => 'OPEN_BILL']);
+                BillTableManager::syncBillTables($bill, [$bill->table_id]);
+                BillTableManager::updateBillTablesStatus($bill, 'OPEN_BILL');
             }
 
             $reservation->deposits()->update(['bill_id' => $bill->id]);
@@ -143,7 +143,7 @@ class ReservationController extends Controller
 
         return response()->json([
             'message' => 'Reservasi berhasil dikonversi ke bill.',
-            'data' => $bill->load(['table:id,code,name,status']),
+            'data' => $bill->load(['table:id,code,name,status', 'tables:id,code,name,status,capacity,area']),
         ], 201);
     }
 }

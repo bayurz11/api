@@ -12,6 +12,7 @@ use App\Models\Payment;
 use App\Models\Table;
 use App\Support\AuditLogger;
 use App\Support\BillOrderState;
+use App\Support\BillTableManager;
 use App\Support\BillTotals;
 use App\Support\SequenceNumber;
 use Illuminate\Http\JsonResponse;
@@ -34,9 +35,17 @@ class BillController extends Controller
     public function index(Request $request): JsonResponse
     {
         $bills = Bill::query()
-            ->with(['table:id,code,name,status', 'customer:id,name,member_code,phone'])
+            ->with(['table:id,code,name,status', 'tables:id,code,name,status,capacity,area', 'customer:id,name,member_code,phone'])
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
-            ->when($request->filled('table_id'), fn ($query) => $query->where('table_id', $request->integer('table_id')))
+            ->when($request->filled('table_id'), function ($query) use ($request) {
+                $tableId = $request->integer('table_id');
+
+                $query->where(function ($billQuery) use ($tableId) {
+                    $billQuery
+                        ->where('table_id', $tableId)
+                        ->orWhereHas('tables', fn ($tableQuery) => $tableQuery->where('tables.id', $tableId));
+                });
+            })
             ->when($request->filled('customer_id'), fn ($query) => $query->where('customer_id', $request->integer('customer_id')))
             ->when($request->filled('bill_type'), fn ($query) => $query->where('bill_type', $request->string('bill_type')))
             ->latest('id')
@@ -50,6 +59,8 @@ class BillController extends Controller
         $validated = $request->validate([
             'bill_type' => ['required', 'string', Rule::in(self::BILL_TYPES)],
             'table_id' => ['nullable', 'integer', 'exists:tables,id'],
+            'extra_table_ids' => ['nullable', 'array'],
+            'extra_table_ids.*' => ['required', 'integer', 'distinct', 'exists:tables,id'],
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'customer_name' => ['nullable', 'string', 'max:255'],
             'guest_count' => ['nullable', 'integer', 'min:1'],
@@ -60,13 +71,15 @@ class BillController extends Controller
         $user = $request->user();
 
         $bill = DB::transaction(function () use ($validated, $user) {
-            if (! empty($validated['table_id'])) {
-                $openBillExists = Bill::query()
-                    ->where('table_id', $validated['table_id'])
-                    ->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID'])
-                    ->exists();
+            $linkedTableIds = BillTableManager::normalizeTableIds(
+                $validated['table_id'] ?? null,
+                $validated['extra_table_ids'] ?? [],
+            );
 
-                abort_if($openBillExists, 422, 'Meja sudah memiliki open bill aktif.');
+            if ($linkedTableIds !== []) {
+                $openBillExists = BillTableManager::activeBillExistsOnAnyTable($linkedTableIds);
+
+                abort_if($openBillExists, 422, 'Salah satu meja sudah memiliki bill aktif.');
             }
 
             $bill = Bill::query()->create([
@@ -82,10 +95,9 @@ class BillController extends Controller
                 'opened_at' => now(),
             ]);
 
-            if ($bill->table_id) {
-                Table::query()->whereKey($bill->table_id)->update([
-                    'status' => 'OPEN_BILL',
-                ]);
+            if ($linkedTableIds !== []) {
+                BillTableManager::syncBillTables($bill, $linkedTableIds);
+                BillTableManager::updateTablesStatus($linkedTableIds, 'OPEN_BILL');
             }
 
             AuditLogger::log(
@@ -102,7 +114,7 @@ class BillController extends Controller
 
         return response()->json([
             'message' => 'Bill berhasil dibuat.',
-            'data' => $bill->load(['table:id,code,name,status', 'customer:id,name,member_code,phone']),
+            'data' => $bill->load(['table:id,code,name,status', 'tables:id,code,name,status,capacity,area', 'customer:id,name,member_code,phone']),
         ], 201);
     }
 
@@ -110,6 +122,7 @@ class BillController extends Controller
     {
         $bill->load([
             'table:id,code,name,status',
+            'tables:id,code,name,status,capacity,area',
             'customer:id,name,member_code,phone,email',
             'items',
             'orders.items',
@@ -181,7 +194,7 @@ class BillController extends Controller
 
         return response()->json([
             'message' => 'Bill berhasil diperbarui.',
-            'data' => $bill->load(['table:id,code,name,status', 'customer:id,name,member_code']),
+            'data' => $bill->load(['table:id,code,name,status', 'tables:id,code,name,status,capacity,area', 'customer:id,name,member_code']),
         ]);
     }
 
@@ -198,18 +211,27 @@ class BillController extends Controller
         $user = $request->user();
 
         DB::transaction(function () use ($bill, $validated, $user) {
-            $targetHasOpenBill = Bill::query()
-                ->where('table_id', $validated['table_id'])
-                ->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID', 'SERVED'])
-                ->exists();
+            $targetHasOpenBill = BillTableManager::activeBillExistsOnAnyTable(
+                [(int) $validated['table_id']],
+                $bill->id,
+            );
 
             abort_if($targetHasOpenBill, 422, 'Meja tujuan masih memiliki bill aktif.');
 
             $previousTableId = $bill->table_id;
+            $currentTableIds = BillTableManager::tableIdsForBill($bill);
+            $updatedTableIds = collect($currentTableIds)
+                ->reject(fn ($tableId) => $tableId === (int) $previousTableId)
+                ->push((int) $validated['table_id'])
+                ->unique()
+                ->values()
+                ->all();
+
             $bill->update(['table_id' => $validated['table_id']]);
+            BillTableManager::syncBillTables($bill, $updatedTableIds);
 
             Table::query()->whereKey($previousTableId)->update(['status' => 'AVAILABLE']);
-            Table::query()->whereKey($validated['table_id'])->update(['status' => 'OPEN_BILL']);
+            BillTableManager::updateTablesStatus($updatedTableIds, 'OPEN_BILL');
 
             AuditLogger::log(
                 userId: $user->id,
@@ -224,7 +246,7 @@ class BillController extends Controller
 
         return response()->json([
             'message' => 'Meja bill berhasil dipindahkan.',
-            'data' => $bill->fresh('table'),
+            'data' => $bill->fresh(['table', 'tables']),
         ]);
     }
 
@@ -243,6 +265,8 @@ class BillController extends Controller
         $user = $request->user();
 
         $targetBill = DB::transaction(function () use ($bill, $targetBill, $user) {
+            $sourceTableIds = BillTableManager::tableIdsForBill($bill);
+            $targetTableIds = BillTableManager::tableIdsForBill($targetBill);
             BillItem::query()->where('bill_id', $bill->id)->update(['bill_id' => $targetBill->id]);
             Order::query()->where('bill_id', $bill->id)->update(['bill_id' => $targetBill->id]);
             Payment::query()->where('bill_id', $bill->id)->update(['bill_id' => $targetBill->id]);
@@ -271,9 +295,13 @@ class BillController extends Controller
                 'closed_at' => now(),
             ]);
 
-            if ($bill->table_id && $bill->table_id !== $targetBill->table_id) {
-                $bill->table()->update(['status' => 'AVAILABLE']);
-            }
+            $mergedTableIds = collect([...$targetTableIds, ...$sourceTableIds])
+                ->unique()
+                ->values()
+                ->all();
+            BillTableManager::syncBillTables($targetBill, $mergedTableIds);
+            BillTableManager::syncBillTables($bill, []);
+            BillTableManager::updateTablesStatus($mergedTableIds, 'OPEN_BILL');
 
             AuditLogger::log(
                 userId: $user->id,
@@ -285,7 +313,7 @@ class BillController extends Controller
                 after: ['target_bill_id' => $targetBill->id],
             );
 
-            return $targetBill->fresh(['table', 'customer']);
+            return $targetBill->fresh(['table', 'tables', 'customer']);
         });
 
         return response()->json([
@@ -332,6 +360,7 @@ class BillController extends Controller
                 'status' => 'OPEN',
                 'opened_at' => now(),
             ]);
+            BillTableManager::syncBillTables($newBill, []);
 
             BillItem::query()
                 ->whereIn('id', $selectedItems->pluck('id'))
@@ -379,7 +408,7 @@ class BillController extends Controller
                 ],
             );
 
-            return $newBill->fresh(['customer']);
+            return $newBill->fresh(['customer', 'tables']);
         });
 
         return response()->json([
@@ -408,9 +437,7 @@ class BillController extends Controller
                 'closed_at' => null,
             ]);
 
-            if ($bill->table_id) {
-                $bill->table()->update(['status' => 'OPEN_BILL']);
-            }
+            BillTableManager::updateBillTablesStatus($bill, 'OPEN_BILL');
 
             AuditLogger::log(
                 userId: $user->id,
@@ -424,7 +451,7 @@ class BillController extends Controller
 
         return response()->json([
             'message' => 'Bill berhasil dibuka kembali.',
-            'data' => $bill->fresh('table'),
+            'data' => $bill->fresh(['table', 'tables']),
         ]);
     }
 
@@ -445,9 +472,8 @@ class BillController extends Controller
                 'closed_at' => now(),
             ]);
 
-            if ($bill->table_id) {
-                $bill->table()->update(['status' => 'AVAILABLE']);
-            }
+            BillTableManager::updateBillTablesStatus($bill, 'AVAILABLE');
+            BillTableManager::syncBillTables($bill, []);
 
             AuditLogger::log(
                 userId: $user->id,
@@ -462,7 +488,7 @@ class BillController extends Controller
 
         return response()->json([
             'message' => 'Bill berhasil di-void.',
-            'data' => $bill->fresh('table'),
+            'data' => $bill->fresh(['table', 'tables']),
         ]);
     }
 
@@ -470,14 +496,25 @@ class BillController extends Controller
     {
         $billType = $validated['bill_type'];
         $tableId = $validated['table_id'] ?? null;
+        $extraTableIds = $validated['extra_table_ids'] ?? [];
         $customerId = $validated['customer_id'] ?? null;
+        $guestCount = (int) ($validated['guest_count'] ?? 1);
+        $linkedTableIds = BillTableManager::normalizeTableIds($tableId, $extraTableIds);
 
         if ($billType === 'DINE_IN') {
             abort_if(blank($tableId), 422, 'Bill DINE_IN wajib memiliki meja.');
+            abort_if($linkedTableIds === [], 422, 'Bill DINE_IN wajib memiliki meja.');
+
+            $totalCapacity = BillTableManager::totalCapacity($linkedTableIds);
+            abort_if($guestCount > $totalCapacity, 422, 'Kapasitas meja gabungan belum cukup untuk jumlah tamu.');
         }
 
         if (in_array($billType, ['TAKE_AWAY', 'WALK_IN', 'DELIVERY'], true)) {
-            abort_if(filled($tableId), 422, 'Bill non-meja tidak boleh terhubung ke meja.');
+            abort_if(
+                filled($tableId) || ! empty($extraTableIds),
+                422,
+                'Bill non-meja tidak boleh terhubung ke meja.',
+            );
         }
 
         if ($billType === 'CUSTOMER') {

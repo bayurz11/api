@@ -139,6 +139,54 @@ class ExampleTest extends TestCase
     }
 
     /**
+     * Verify dine in bill can span multiple tables when guest count exceeds one table capacity.
+     */
+    public function test_authenticated_user_can_create_multi_table_bill(): void
+    {
+        $this->seed();
+
+        $user = User::query()->where('username', 'kasir01')->firstOrFail();
+        $primaryTable = Table::query()->where('code', 'T01')->firstOrFail();
+        $secondaryTable = Table::query()->where('code', 'T02')->firstOrFail();
+
+        $response = $this->actingAs($user, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'DINE_IN',
+            'table_id' => $primaryTable->id,
+            'extra_table_ids' => [$secondaryTable->id],
+            'guest_count' => 7,
+        ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('data.table.id', $primaryTable->id)
+            ->assertJsonCount(2, 'data.tables');
+
+        $billId = $response->json('data.id');
+
+        $this->assertDatabaseHas('bill_tables', [
+            'bill_id' => $billId,
+            'table_id' => $primaryTable->id,
+        ]);
+        $this->assertDatabaseHas('bill_tables', [
+            'bill_id' => $billId,
+            'table_id' => $secondaryTable->id,
+        ]);
+        $this->assertDatabaseHas('tables', [
+            'id' => $primaryTable->id,
+            'status' => 'OPEN_BILL',
+        ]);
+        $this->assertDatabaseHas('tables', [
+            'id' => $secondaryTable->id,
+            'status' => 'OPEN_BILL',
+        ]);
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson('/api/v1/bills?table_id='.$secondaryTable->id)
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $billId);
+    }
+
+    /**
      * Verify unavailable menu is rejected from ordering.
      */
     public function test_unavailable_menu_cannot_be_ordered(): void

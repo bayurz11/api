@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Bill;
 use App\Models\Payment;
 use App\Support\AuditLogger;
+use App\Support\BillTableManager;
 use App\Support\BillTotals;
 use App\Support\PaymentSummary;
 use App\Support\SequenceNumber;
@@ -54,8 +55,8 @@ class PaymentController extends Controller
 
             $bill = BillTotals::recalculate($bill);
 
-            if ($bill->status === 'PAID' && $bill->table_id) {
-                $bill->table()->update(['status' => 'CLEANING']);
+            if ($bill->status === 'PAID') {
+                BillTableManager::updateBillTablesStatus($bill, 'CLEANING');
             }
 
             AuditLogger::log(
@@ -117,8 +118,8 @@ class PaymentController extends Controller
 
             $bill = BillTotals::recalculate($bill);
 
-            if ($bill->status === 'PAID' && $bill->table_id) {
-                $bill->table()->update(['status' => 'CLEANING']);
+            if ($bill->status === 'PAID') {
+                BillTableManager::updateBillTablesStatus($bill, 'CLEANING');
             }
 
             AuditLogger::log(
@@ -156,9 +157,7 @@ class PaymentController extends Controller
                 'closed_at' => $bill->closed_at ?? now(),
             ]);
 
-            if ($bill->table_id) {
-                $bill->table()->update(['status' => 'CLEANING']);
-            }
+            BillTableManager::updateBillTablesStatus($bill, 'CLEANING');
 
             AuditLogger::log(
                 userId: $user->id,
@@ -194,13 +193,11 @@ class PaymentController extends Controller
 
             $bill = BillTotals::recalculate($payment->bill);
 
-            if ($bill->table_id) {
-                $tableStatus = in_array($bill->status, ['PAID', 'VOID', 'REFUND'], true)
-                    ? 'CLEANING'
-                    : 'OPEN_BILL';
+            $tableStatus = in_array($bill->status, ['PAID', 'VOID', 'REFUND'], true)
+                ? 'CLEANING'
+                : 'OPEN_BILL';
 
-                $bill->table()->update(['status' => $tableStatus]);
-            }
+            BillTableManager::updateBillTablesStatus($bill, $tableStatus);
 
             AuditLogger::log(
                 userId: $user->id,
@@ -263,9 +260,7 @@ class PaymentController extends Controller
                 ]);
             }
 
-            if ($bill->table_id) {
-                $bill->table()->update(['status' => 'CLEANING']);
-            }
+            BillTableManager::updateBillTablesStatus($bill, 'CLEANING');
 
             AuditLogger::log(
                 userId: $user->id,

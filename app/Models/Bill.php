@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Bill extends Model
@@ -51,6 +52,11 @@ class Bill extends Model
     public function table(): BelongsTo
     {
         return $this->belongsTo(Table::class);
+    }
+
+    public function tables(): BelongsToMany
+    {
+        return $this->belongsToMany(Table::class, 'bill_tables')->withTimestamps();
     }
 
     public function customer(): BelongsTo

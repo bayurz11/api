@@ -148,7 +148,10 @@ class TableController extends Controller
         $hasActiveBill = $table->bills()
             ->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID', 'SERVED'])
             ->exists();
-        abort_if($hasActiveBill, 422, 'Meja masih memiliki bill aktif dan tidak dapat dihapus.');
+        $hasActiveLinkedBill = $table->linkedBills()
+            ->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID', 'SERVED'])
+            ->exists();
+        abort_if($hasActiveBill || $hasActiveLinkedBill, 422, 'Meja masih memiliki bill aktif dan tidak dapat dihapus.');
 
         $hasActiveReservation = $table->reservations()
             ->whereIn('status', ['BOOKED'])
