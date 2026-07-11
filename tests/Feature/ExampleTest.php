@@ -832,6 +832,7 @@ class ExampleTest extends TestCase
 
         $this->assertSame('Warung Babeh', Setting::getValue('restaurant_name'));
         $this->assertSame('Jl. Contoh No. 12, Jakarta', Setting::getValue('restaurant_address'));
+        $this->get('/api/v1/restaurant-profile/logo')->assertOk();
 
         $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
             'bill_type' => 'DINE_IN',

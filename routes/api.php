@@ -25,6 +25,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     Route::get('/health', HealthController::class);
+    Route::get('/restaurant-profile/logo', [RestaurantProfileController::class, 'logo']);
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::get('/qr-menu/{tableCode}', [QrMenuController::class, 'menu']);
     Route::post('/qr-menu/{tableCode}/checkout', [QrMenuController::class, 'checkout'])->middleware('throttle:qr-checkout');
