@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Support\AuditLogger;
 use App\Support\BillTotals;
+use App\Support\InventoryManager;
 use App\Support\SequenceNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,6 +41,7 @@ class OrderController extends Controller
         $order = DB::transaction(function () use ($bill, $validated, $user) {
             $menus = Menu::query()
                 ->with('category:id,name,station_type')
+                ->with('recipeIngredients')
                 ->whereIn('id', collect($validated['items'])->pluck('menu_id'))
                 ->get()
                 ->keyBy('id');
@@ -57,8 +59,15 @@ class OrderController extends Controller
 
             foreach ($validated['items'] as $item) {
                 $menu = $menus[$item['menu_id']];
-                abort_if(! $menu->is_active || ! $menu->is_available, 422, "Menu {$menu->name} sedang tidak tersedia.");
+                abort_if(! $menu->is_active || ! $menu->is_available || ! $menu->is_stock_available, 422, "Menu {$menu->name} sedang tidak tersedia.");
                 $lineTotal = (float) $menu->price * $item['qty'];
+
+                InventoryManager::deductForMenu(
+                    menu: $menu,
+                    qty: (int) $item['qty'],
+                    userId: $user->id,
+                    reason: "Order POS {$order->order_no} untuk {$menu->name}",
+                );
 
                 $billItem = BillItem::query()->create([
                     'bill_id' => $bill->id,
@@ -80,6 +89,7 @@ class OrderController extends Controller
                     'qty' => $item['qty'],
                     'notes' => $item['notes'] ?? null,
                     'status' => 'WAITING',
+                    'stock_deducted' => true,
                 ]);
 
                 $subtotalIncrease += $lineTotal;

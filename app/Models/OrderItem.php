@@ -19,6 +19,7 @@ class OrderItem extends Model
         'qty',
         'notes',
         'status',
+        'stock_deducted',
         'accepted_at',
         'started_at',
         'ready_at',
@@ -28,6 +29,7 @@ class OrderItem extends Model
     protected function casts(): array
     {
         return [
+            'stock_deducted' => 'boolean',
             'accepted_at' => 'datetime',
             'started_at' => 'datetime',
             'ready_at' => 'datetime',

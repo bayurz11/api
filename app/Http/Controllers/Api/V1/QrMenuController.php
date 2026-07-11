@@ -13,6 +13,7 @@ use App\Models\QrOrderItem;
 use App\Models\Table;
 use App\Support\AuditLogger;
 use App\Support\BillTotals;
+use App\Support\InventoryManager;
 use App\Support\SequenceNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -34,6 +35,7 @@ class QrMenuController extends Controller
                     ->where('category_id', $category->id)
                     ->where('is_active', true)
                     ->where('is_available', true)
+                    ->where('is_stock_available', true)
                     ->orderBy('name')
                     ->get(['id', 'sku', 'name', 'description', 'price', 'station_type']);
 
@@ -99,7 +101,7 @@ class QrMenuController extends Controller
 
             foreach ($validated['items'] as $item) {
                 $menu = $menus[$item['menu_id']];
-                abort_if(! $menu->is_active || ! $menu->is_available, 422, "Menu {$menu->name} sedang tidak tersedia.");
+                abort_if(! $menu->is_active || ! $menu->is_available || ! $menu->is_stock_available, 422, "Menu {$menu->name} sedang tidak tersedia.");
 
                 $lineTotal = (float) $menu->price * (int) $item['qty'];
                 $subtotal += $lineTotal;
@@ -216,6 +218,18 @@ class QrMenuController extends Controller
             $qrOrder->loadMissing('items');
 
             foreach ($qrOrder->items as $qrItem) {
+                $menu = Menu::query()
+                    ->with('recipeIngredients')
+                    ->findOrFail($qrItem->menu_id);
+                abort_if(! $menu->is_active || ! $menu->is_available || ! $menu->is_stock_available, 422, "Menu {$menu->name} sedang tidak tersedia.");
+
+                InventoryManager::deductForMenu(
+                    menu: $menu,
+                    qty: (int) $qrItem->qty,
+                    userId: $user->id,
+                    reason: "Order QR {$order->order_no} untuk {$menu->name}",
+                );
+
                 $billItem = BillItem::query()->create([
                     'bill_id' => $bill->id,
                     'menu_id' => $qrItem->menu_id,
@@ -231,11 +245,12 @@ class QrMenuController extends Controller
                     'order_id' => $order->id,
                     'bill_item_id' => $billItem->id,
                     'menu_id' => $qrItem->menu_id,
-                    'category_id' => Menu::query()->whereKey($qrItem->menu_id)->value('category_id'),
+                    'category_id' => $menu->category_id,
                     'station_type' => $qrItem->station_type,
                     'qty' => $qrItem->qty,
                     'notes' => $qrItem->notes,
                     'status' => 'WAITING',
+                    'stock_deducted' => true,
                 ]);
 
                 $qrItem->update(['status' => 'APPROVED']);

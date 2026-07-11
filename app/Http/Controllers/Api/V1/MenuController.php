@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Menu;
 use App\Models\MenuCategory;
 use App\Support\AuditLogger;
+use App\Support\InventoryManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -21,8 +22,9 @@ class MenuController extends Controller
     {
         $menus = Menu::query()
             ->with('category:id,name,station_type')
+            ->withCount('recipeIngredients')
             ->when($request->filled('category_id'), fn ($query) => $query->where('category_id', $request->integer('category_id')))
-            ->when($request->boolean('available_only', false), fn ($query) => $query->where('is_available', true)->where('is_active', true))
+            ->when($request->boolean('available_only', false), fn ($query) => $query->where('is_available', true)->where('is_stock_available', true)->where('is_active', true))
             ->when(
                 $request->filled('search'),
                 fn ($query) => $query->where(function ($innerQuery) use ($request) {
@@ -65,8 +67,11 @@ class MenuController extends Controller
             'price' => $validated['price'],
             'station_type' => $validated['station_type'],
             'is_available' => $validated['is_available'] ?? true,
+            'is_stock_available' => true,
             'is_active' => $validated['is_active'] ?? true,
         ]);
+
+        InventoryManager::syncMenuStockAvailability($menu);
 
         AuditLogger::log(
             userId: $request->user()->id,
@@ -106,6 +111,7 @@ class MenuController extends Controller
 
         $menu->fill($validated);
         $menu->save();
+        InventoryManager::syncMenuStockAvailability($menu);
 
         AuditLogger::log(
             userId: $request->user()->id,

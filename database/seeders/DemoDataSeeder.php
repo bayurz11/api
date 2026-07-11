@@ -13,6 +13,8 @@ class DemoDataSeeder extends Seeder
      */
     public function run(): void
     {
+        $timestamp = now();
+
         $owner = User::updateOrCreate(
             ['username' => 'owner'],
             [
@@ -101,6 +103,36 @@ class DemoDataSeeder extends Seeder
             ['sku'],
             ['category_id', 'name', 'description', 'price', 'station_type', 'is_available', 'is_active'],
         );
+
+        DB::table('ingredients')->upsert([
+            ['code' => 'BHN-001', 'name' => 'Beras', 'unit' => 'gram', 'current_stock' => 20000, 'minimum_stock' => 5000, 'notes' => 'Bahan nasi utama', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-002', 'name' => 'Ayam Fillet', 'unit' => 'gram', 'current_stock' => 12000, 'minimum_stock' => 3000, 'notes' => 'Untuk lauk ayam', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-003', 'name' => 'Telur', 'unit' => 'butir', 'current_stock' => 180, 'minimum_stock' => 36, 'notes' => 'Telur ayam negeri', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-004', 'name' => 'Bumbu Nasi Goreng', 'unit' => 'gram', 'current_stock' => 3000, 'minimum_stock' => 500, 'notes' => 'Bumbu racik nasi goreng', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-005', 'name' => 'Teh Melati', 'unit' => 'gram', 'current_stock' => 1500, 'minimum_stock' => 300, 'notes' => 'Untuk teh panas dan es teh', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-006', 'name' => 'Gula Cair', 'unit' => 'ml', 'current_stock' => 7000, 'minimum_stock' => 1500, 'notes' => 'Pemanis minuman', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-007', 'name' => 'Jeruk Peras', 'unit' => 'buah', 'current_stock' => 140, 'minimum_stock' => 30, 'notes' => 'Untuk es jeruk', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-008', 'name' => 'Es Batu', 'unit' => 'gram', 'current_stock' => 25000, 'minimum_stock' => 5000, 'notes' => 'Untuk minuman dingin', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+        ], ['code'], ['name', 'unit', 'current_stock', 'minimum_stock', 'notes', 'is_active', 'updated_at']);
+
+        $nasiGorengId = DB::table('menus')->where('sku', 'MKN-001')->value('id');
+        $esTehId = DB::table('menus')->where('sku', 'MNM-001')->value('id');
+        $esJerukId = DB::table('menus')->where('sku', 'MNM-003')->value('id');
+
+        $ingredients = DB::table('ingredients')->pluck('id', 'code');
+
+        DB::table('menu_ingredients')->upsert([
+            ['menu_id' => $nasiGorengId, 'ingredient_id' => $ingredients['BHN-001'], 'qty_per_portion' => 180, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['menu_id' => $nasiGorengId, 'ingredient_id' => $ingredients['BHN-002'], 'qty_per_portion' => 90, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['menu_id' => $nasiGorengId, 'ingredient_id' => $ingredients['BHN-003'], 'qty_per_portion' => 1, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['menu_id' => $nasiGorengId, 'ingredient_id' => $ingredients['BHN-004'], 'qty_per_portion' => 18, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['menu_id' => $esTehId, 'ingredient_id' => $ingredients['BHN-005'], 'qty_per_portion' => 10, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['menu_id' => $esTehId, 'ingredient_id' => $ingredients['BHN-006'], 'qty_per_portion' => 25, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['menu_id' => $esTehId, 'ingredient_id' => $ingredients['BHN-008'], 'qty_per_portion' => 120, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['menu_id' => $esJerukId, 'ingredient_id' => $ingredients['BHN-006'], 'qty_per_portion' => 20, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['menu_id' => $esJerukId, 'ingredient_id' => $ingredients['BHN-007'], 'qty_per_portion' => 2, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['menu_id' => $esJerukId, 'ingredient_id' => $ingredients['BHN-008'], 'qty_per_portion' => 120, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+        ], ['menu_id', 'ingredient_id'], ['qty_per_portion', 'updated_at']);
 
         foreach ([
             [

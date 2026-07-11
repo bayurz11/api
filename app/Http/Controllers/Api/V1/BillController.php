@@ -12,6 +12,7 @@ use App\Models\Payment;
 use App\Models\Table;
 use App\Support\AuditLogger;
 use App\Support\BillOrderState;
+use App\Support\InventoryManager;
 use App\Support\BillTableManager;
 use App\Support\BillTotals;
 use App\Support\SequenceNumber;
@@ -25,6 +26,7 @@ class BillController extends Controller
     private const BILL_TYPES = [
         'DINE_IN',
         'TAKE_AWAY',
+        'CATERING',
         'WALK_IN',
         'DELIVERY',
         'CUSTOMER',
@@ -349,7 +351,10 @@ class BillController extends Controller
     public function split(Request $request, Bill $bill): JsonResponse
     {
         $validated = $request->validate([
-            'bill_item_ids' => ['required', 'array', 'min:1'],
+            'items' => ['nullable', 'array', 'min:1'],
+            'items.*.bill_item_id' => ['required', 'integer', 'exists:bill_items,id'],
+            'items.*.qty' => ['required', 'integer', 'min:1'],
+            'bill_item_ids' => ['nullable', 'array', 'min:1'],
             'bill_item_ids.*' => ['required', 'integer', 'exists:bill_items,id'],
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'customer_name' => ['nullable', 'string', 'max:255'],
@@ -359,19 +364,63 @@ class BillController extends Controller
         abort_if(in_array($bill->status, ['PAID', 'CANCELLED', 'VOID', 'REFUND'], true), 422, 'Bill ini tidak bisa di-split.');
         abort_if((float) $bill->paid_total > 0 || $bill->payments()->where('status', 'PAID')->exists(), 422, 'Bill yang sudah memiliki payment tidak bisa di-split.');
 
-        $selectedItemIds = collect($validated['bill_item_ids'])->unique()->values();
-        $sourceItemsCount = BillItem::query()->where('bill_id', $bill->id)->count();
-        $selectedItems = BillItem::query()
+        $splitItems = collect($validated['items'] ?? [])
+            ->map(fn (array $row) => [
+                'bill_item_id' => (int) $row['bill_item_id'],
+                'qty' => (int) $row['qty'],
+            ]);
+
+        if ($splitItems->isEmpty()) {
+            $splitItems = collect($validated['bill_item_ids'] ?? [])
+                ->unique()
+                ->values()
+                ->map(fn (int $billItemId) => [
+                    'bill_item_id' => $billItemId,
+                    'qty' => null,
+                ]);
+        }
+
+        abort_if($splitItems->isEmpty(), 422, 'Pilih minimal satu item untuk split bill.');
+
+        $selectedItemIds = $splitItems->pluck('bill_item_id')->unique()->values();
+        abort_if($selectedItemIds->count() !== $splitItems->count(), 422, 'Item split tidak boleh duplikat.');
+
+        $sourceItems = BillItem::query()
             ->where('bill_id', $bill->id)
             ->whereIn('id', $selectedItemIds)
             ->get();
 
-        abort_if($selectedItems->count() !== $selectedItemIds->count(), 422, 'Sebagian item tidak berasal dari bill ini.');
-        abort_if($selectedItems->count() === $sourceItemsCount, 422, 'Tidak dapat memindahkan semua item dengan split bill.');
+        abort_if($sourceItems->count() !== $selectedItemIds->count(), 422, 'Sebagian item tidak berasal dari bill ini.');
+
+        $sourceItemsById = $sourceItems->keyBy('id');
+        $normalizedSplitItems = $splitItems->map(function (array $row) use ($sourceItemsById): array {
+            /** @var BillItem|null $billItem */
+            $billItem = $sourceItemsById->get($row['bill_item_id']);
+            abort_if(! $billItem, 422, 'Sebagian item tidak berasal dari bill ini.');
+
+            $requestedQty = $row['qty'] ?? (int) $billItem->qty;
+            abort_if($requestedQty < 1, 422, 'Jumlah split item minimal 1.');
+            abort_if($requestedQty > (int) $billItem->qty, 422, "Jumlah split untuk {$billItem->menu_name} melebihi qty yang tersedia.");
+
+            return [
+                'bill_item_id' => (int) $billItem->id,
+                'qty' => (int) $requestedQty,
+            ];
+        })->values();
+
+        $movesAllSourceItems = $sourceItems->count() === BillItem::query()->where('bill_id', $bill->id)->count()
+            && $normalizedSplitItems->every(function (array $row) use ($sourceItemsById): bool {
+                /** @var BillItem $billItem */
+                $billItem = $sourceItemsById->get($row['bill_item_id']);
+
+                return (int) $row['qty'] === (int) $billItem->qty;
+            });
+
+        abort_if($movesAllSourceItems, 422, 'Tidak dapat memindahkan semua item dengan split bill.');
 
         $user = $request->user();
 
-        $newBill = DB::transaction(function () use ($bill, $validated, $selectedItems, $user) {
+        $newBill = DB::transaction(function () use ($bill, $validated, $normalizedSplitItems, $sourceItemsById, $user) {
             $newBill = Bill::query()->create([
                 'bill_no' => SequenceNumber::generate('BILL', Bill::class, 'bill_no'),
                 'bill_type' => $validated['customer_id'] ? 'CUSTOMER' : 'SPLIT',
@@ -386,35 +435,102 @@ class BillController extends Controller
             ]);
             BillTableManager::syncBillTables($newBill, []);
 
-            BillItem::query()
-                ->whereIn('id', $selectedItems->pluck('id'))
-                ->update(['bill_id' => $newBill->id]);
+            $newOrdersBySource = collect();
+            $movedBillItemIds = collect();
 
-            $selectedOrderItems = OrderItem::query()
-                ->whereIn('bill_item_id', $selectedItems->pluck('id'))
-                ->get()
-                ->groupBy('order_id');
+            foreach ($normalizedSplitItems as $splitRow) {
+                /** @var BillItem $sourceBillItem */
+                $sourceBillItem = $sourceItemsById->get($splitRow['bill_item_id']);
+                $splitQty = (int) $splitRow['qty'];
+                $sourceQty = (int) $sourceBillItem->qty;
 
-            foreach ($selectedOrderItems as $orderId => $orderItems) {
-                $sourceOrder = Order::query()->findOrFail($orderId);
+                $movedBillItem = $sourceBillItem;
 
-                $newOrder = Order::query()->create([
-                    'order_no' => SequenceNumber::generate('ORD', Order::class, 'order_no'),
-                    'bill_id' => $newBill->id,
-                    'created_by' => $sourceOrder->created_by,
-                    'source' => $sourceOrder->source,
-                    'status' => $sourceOrder->status,
-                    'sent_at' => $sourceOrder->sent_at,
-                    'ready_at' => $sourceOrder->ready_at,
-                    'served_at' => $sourceOrder->served_at,
-                ]);
+                if ($splitQty === $sourceQty) {
+                    $sourceBillItem->update([
+                        'bill_id' => $newBill->id,
+                    ]);
+                } else {
+                    $perUnitDiscount = $sourceQty > 0 ? round((float) $sourceBillItem->discount_amount / $sourceQty, 2) : 0.0;
+                    $perUnitLineTotal = $sourceQty > 0 ? round((float) $sourceBillItem->line_total / $sourceQty, 2) : 0.0;
 
-                OrderItem::query()
-                    ->whereIn('id', $orderItems->pluck('id'))
-                    ->update(['order_id' => $newOrder->id]);
+                    $movedBillItem = BillItem::query()->create([
+                        'bill_id' => $newBill->id,
+                        'menu_id' => $sourceBillItem->menu_id,
+                        'menu_name' => $sourceBillItem->menu_name,
+                        'qty' => $splitQty,
+                        'unit_price' => $sourceBillItem->unit_price,
+                        'discount_amount' => round($perUnitDiscount * $splitQty, 2),
+                        'line_total' => round($perUnitLineTotal * $splitQty, 2),
+                        'notes' => $sourceBillItem->notes,
+                    ]);
 
-                $this->syncOrderStatus($newOrder->fresh());
-                $this->syncOrDeleteOrder($sourceOrder->fresh());
+                    $remainingQty = $sourceQty - $splitQty;
+                    $sourceBillItem->update([
+                        'qty' => $remainingQty,
+                        'discount_amount' => round((float) $sourceBillItem->discount_amount - (float) $movedBillItem->discount_amount, 2),
+                        'line_total' => round((float) $sourceBillItem->line_total - (float) $movedBillItem->line_total, 2),
+                    ]);
+                }
+
+                $movedBillItemIds->push($movedBillItem->id);
+
+                $relatedOrderItems = OrderItem::query()
+                    ->where('bill_item_id', $sourceBillItem->id)
+                    ->get();
+
+                foreach ($relatedOrderItems as $sourceOrderItem) {
+                    $sourceOrder = Order::query()->findOrFail($sourceOrderItem->order_id);
+
+                    /** @var Order|null $newOrder */
+                    $newOrder = $newOrdersBySource->get($sourceOrder->id);
+                    if (! $newOrder) {
+                        $newOrder = Order::query()->create([
+                            'order_no' => SequenceNumber::generate('ORD', Order::class, 'order_no'),
+                            'bill_id' => $newBill->id,
+                            'created_by' => $sourceOrder->created_by,
+                            'source' => $sourceOrder->source,
+                            'status' => $sourceOrder->status,
+                            'sent_at' => $sourceOrder->sent_at,
+                            'ready_at' => $sourceOrder->ready_at,
+                            'served_at' => $sourceOrder->served_at,
+                        ]);
+                        $newOrdersBySource->put($sourceOrder->id, $newOrder);
+                    }
+
+                    $sourceOrderQty = (int) $sourceOrderItem->qty;
+
+                    if ($splitQty === $sourceOrderQty) {
+                        $sourceOrderItem->update([
+                            'order_id' => $newOrder->id,
+                            'bill_item_id' => $movedBillItem->id,
+                        ]);
+                    } else {
+                        abort_if($splitQty > $sourceOrderQty, 422, "Jumlah split order untuk {$sourceBillItem->menu_name} melebihi qty yang tersedia.");
+
+                        OrderItem::query()->create([
+                            'order_id' => $newOrder->id,
+                            'bill_item_id' => $movedBillItem->id,
+                            'menu_id' => $sourceOrderItem->menu_id,
+                            'category_id' => $sourceOrderItem->category_id,
+                            'station_type' => $sourceOrderItem->station_type,
+                            'qty' => $splitQty,
+                            'notes' => $sourceOrderItem->notes,
+                            'status' => $sourceOrderItem->status,
+                            'accepted_at' => $sourceOrderItem->accepted_at,
+                            'started_at' => $sourceOrderItem->started_at,
+                            'ready_at' => $sourceOrderItem->ready_at,
+                            'served_at' => $sourceOrderItem->served_at,
+                        ]);
+
+                        $sourceOrderItem->update([
+                            'qty' => $sourceOrderQty - $splitQty,
+                        ]);
+                    }
+
+                    $this->syncOrderStatus($newOrder->fresh());
+                    $this->syncOrDeleteOrder($sourceOrder->fresh());
+                }
             }
 
             $newBill = BillTotals::recalculate($newBill);
@@ -428,7 +544,8 @@ class BillController extends Controller
                 entityId: $bill->id,
                 after: [
                     'new_bill_id' => $newBill->id,
-                    'moved_item_ids' => $selectedItems->pluck('id')->values(),
+                    'moved_item_ids' => $movedBillItemIds->values(),
+                    'split_items' => $normalizedSplitItems,
                 ],
             );
 
@@ -491,6 +608,28 @@ class BillController extends Controller
         $user = $request->user();
 
         DB::transaction(function () use ($bill, $validated, $user) {
+            $bill->loadMissing('orders.items.menu');
+
+            foreach ($bill->orders as $order) {
+                foreach ($order->items as $orderItem) {
+                    if (in_array($orderItem->status, ['SERVED', 'CANCELLED'], true)) {
+                        continue;
+                    }
+
+                    $orderItem->update([
+                        'status' => 'CANCELLED',
+                    ]);
+
+                    InventoryManager::restoreForOrderItem(
+                        orderItem: $orderItem->fresh(['menu']),
+                        userId: $user->id,
+                        reason: "Bill {$bill->bill_no} di-void",
+                    );
+                }
+
+                $this->syncOrderStatus($order->fresh('items'));
+            }
+
             $bill->update([
                 'status' => 'VOID',
                 'closed_at' => now(),
@@ -533,7 +672,7 @@ class BillController extends Controller
             abort_if($guestCount > $totalCapacity, 422, 'Kapasitas meja gabungan belum cukup untuk jumlah tamu.');
         }
 
-        if (in_array($billType, ['TAKE_AWAY', 'WALK_IN', 'DELIVERY'], true)) {
+        if (in_array($billType, ['TAKE_AWAY', 'CATERING', 'WALK_IN', 'DELIVERY'], true)) {
             abort_if(
                 filled($tableId) || ! empty($extraTableIds),
                 422,

@@ -9,7 +9,9 @@ use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\KitchenController;
 use App\Http\Controllers\Api\V1\MenuController;
+use App\Http\Controllers\Api\V1\MenuIngredientController;
 use App\Http\Controllers\Api\V1\MenuCategoryController;
+use App\Http\Controllers\Api\V1\IngredientController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrderItemStatusController;
@@ -43,6 +45,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/audit-logs', [AuditLogController::class, 'index']);
             Route::get('/reports/sales-summary', [ReportController::class, 'salesSummary']);
             Route::get('/reports/sales-summary/export', [ReportController::class, 'exportSalesSummary']);
+            Route::get('/reports/sales-summary/export-excel', [ReportController::class, 'exportSalesSummaryExcel']);
         });
 
         Route::middleware('permission:settings.view')->group(function () {
@@ -71,6 +74,8 @@ Route::prefix('v1')->group(function () {
         Route::middleware('permission:menus.view')->group(function () {
             Route::get('/menu-categories', [MenuCategoryController::class, 'index']);
             Route::get('/menus', [MenuController::class, 'index']);
+            Route::get('/ingredients', [IngredientController::class, 'index']);
+            Route::get('/menus/{menu}/ingredients', [MenuIngredientController::class, 'index']);
         });
 
         Route::middleware('permission:menus.manage')->group(function () {
@@ -80,6 +85,11 @@ Route::prefix('v1')->group(function () {
             Route::post('/menus', [MenuController::class, 'store']);
             Route::patch('/menus/{menu}', [MenuController::class, 'update']);
             Route::delete('/menus/{menu}', [MenuController::class, 'destroy']);
+            Route::post('/ingredients', [IngredientController::class, 'store']);
+            Route::patch('/ingredients/{ingredient}', [IngredientController::class, 'update']);
+            Route::delete('/ingredients/{ingredient}', [IngredientController::class, 'destroy']);
+            Route::post('/ingredients/{ingredient}/adjust-stock', [IngredientController::class, 'adjustStock']);
+            Route::put('/menus/{menu}/ingredients', [MenuIngredientController::class, 'sync']);
         });
 
         Route::middleware('permission:customers.view')->group(function () {

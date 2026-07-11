@@ -679,6 +679,18 @@ class ExampleTest extends TestCase
             ->assertJsonPath('data.bill_type', 'TAKE_AWAY')
             ->assertJsonPath('data.customer_name', 'Budi Pickup');
 
+        $cateringResponse = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'CATERING',
+            'customer_name' => 'Acara Kantor',
+            'guest_count' => 15,
+        ]);
+
+        $cateringResponse
+            ->assertCreated()
+            ->assertJsonPath('data.bill_type', 'CATERING')
+            ->assertJsonPath('data.customer_name', 'Acara Kantor')
+            ->assertJsonPath('data.table_id', null);
+
         $customerBillResponse = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
             'bill_type' => 'CUSTOMER',
             'customer_id' => $customer->id,
@@ -954,7 +966,7 @@ class ExampleTest extends TestCase
     }
 
     /**
-     * Verify selected bill items can be split into a new bill and related order items follow.
+     * Verify selected bill item quantities can be split into a new bill and related order items follow.
      */
     public function test_split_bill_flow_work(): void
     {
@@ -975,7 +987,7 @@ class ExampleTest extends TestCase
         $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
             'items' => [
                 ['menu_id' => $food->id, 'qty' => 1],
-                ['menu_id' => $drink->id, 'qty' => 1],
+                ['menu_id' => $drink->id, 'qty' => 3],
             ],
         ])->assertCreated();
 
@@ -983,7 +995,12 @@ class ExampleTest extends TestCase
         $drinkItem = $sourceBill->items->firstWhere('menu_id', $drink->id);
 
         $response = $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/split", [
-            'bill_item_ids' => [$drinkItem->id],
+            'items' => [
+                [
+                    'bill_item_id' => $drinkItem->id,
+                    'qty' => 1,
+                ],
+            ],
             'customer_id' => $customer->id,
             'guest_count' => 1,
         ]);
@@ -999,14 +1016,15 @@ class ExampleTest extends TestCase
         $newBillId = $response->json('data.id');
 
         $this->assertDatabaseHas('bill_items', [
-            'id' => $drinkItem->id,
             'bill_id' => $newBillId,
+            'menu_id' => $drink->id,
+            'qty' => 1,
         ]);
 
         $this->assertDatabaseHas('bills', [
             'id' => $billId,
-            'subtotal' => 28000,
-            'balance_due' => 28000,
+            'subtotal' => 44000,
+            'balance_due' => 44000,
         ]);
 
         $this->assertDatabaseHas('bills', [
@@ -1018,6 +1036,20 @@ class ExampleTest extends TestCase
         ]);
 
         $this->assertDatabaseCount('orders', 2);
+        $this->assertDatabaseHas('bill_items', [
+            'id' => $drinkItem->id,
+            'bill_id' => $billId,
+            'qty' => 2,
+            'line_total' => 16000,
+        ]);
+        $this->assertDatabaseHas('order_items', [
+            'bill_item_id' => $drinkItem->id,
+            'qty' => 2,
+        ]);
+        $this->assertDatabaseHas('order_items', [
+            'menu_id' => $drink->id,
+            'qty' => 1,
+        ]);
 
         $newBill = Bill::query()->with(['orders.items'])->findOrFail($newBillId);
         $this->assertCount(1, $newBill->orders);
@@ -1026,7 +1058,7 @@ class ExampleTest extends TestCase
 
         $sourceBill = Bill::query()->with(['orders.items'])->findOrFail($billId);
         $this->assertCount(1, $sourceBill->orders);
-        $this->assertCount(1, $sourceBill->orders->first()->items);
+        $this->assertCount(2, $sourceBill->orders->first()->items);
         $this->assertSame($food->id, $sourceBill->orders->first()->items->first()->menu_id);
     }
 
@@ -1112,6 +1144,283 @@ class ExampleTest extends TestCase
         $this->assertDatabaseMissing('menus', ['id' => $menuId]);
         $this->assertDatabaseMissing('tables', ['id' => $tableId]);
         $this->assertDatabaseMissing('customers', ['id' => $customerId]);
+    }
+
+    /**
+     * Verify ingredient CRUD, stock adjustment, and menu recipe flow work.
+     */
+    public function test_inventory_master_data_flow_work(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $menu = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+
+        $createResponse = $this->actingAs($owner, 'sanctum')->postJson('/api/v1/ingredients', [
+            'code' => 'BHN-999',
+            'name' => 'Cabai Rawit',
+            'unit' => 'gram',
+            'current_stock' => 2500,
+            'minimum_stock' => 300,
+            'notes' => 'Untuk sambal tambahan',
+            'is_active' => true,
+        ]);
+
+        $createResponse
+            ->assertCreated()
+            ->assertJsonPath('data.code', 'BHN-999')
+            ->assertJsonPath('data.current_stock', '2500.00');
+
+        $ingredientId = $createResponse->json('data.id');
+
+        $this->actingAs($owner, 'sanctum')
+            ->getJson('/api/v1/ingredients')
+            ->assertOk()
+            ->assertJsonFragment([
+                'code' => 'BHN-999',
+                'name' => 'Cabai Rawit',
+            ]);
+
+        $this->actingAs($owner, 'sanctum')
+            ->putJson("/api/v1/menus/{$menu->id}/ingredients", [
+                'ingredients' => [
+                    [
+                        'ingredient_id' => $ingredientId,
+                        'qty_per_portion' => 12,
+                    ],
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.ingredients.0.code', 'BHN-999')
+            ->assertJsonPath('data.ingredients.0.qty_per_portion', 12);
+
+        $this->actingAs($owner, 'sanctum')
+            ->getJson("/api/v1/menus/{$menu->id}/ingredients")
+            ->assertOk()
+            ->assertJsonPath('data.ingredients.0.code', 'BHN-999');
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson("/api/v1/ingredients/{$ingredientId}/adjust-stock", [
+                'qty_delta' => -250,
+                'reason' => 'Sampling produksi',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.current_stock', '2250.00');
+
+        $this->actingAs($owner, 'sanctum')
+            ->patchJson("/api/v1/ingredients/{$ingredientId}", [
+                'name' => 'Cabai Rawit Merah',
+                'minimum_stock' => 400,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Cabai Rawit Merah')
+            ->assertJsonPath('data.minimum_stock', '400.00');
+
+        $this->assertDatabaseHas('ingredient_stock_movements', [
+            'ingredient_id' => $ingredientId,
+            'movement_type' => 'INITIAL',
+        ]);
+        $this->assertDatabaseHas('ingredient_stock_movements', [
+            'ingredient_id' => $ingredientId,
+            'movement_type' => 'ADJUST_OUT',
+        ]);
+
+        $this->actingAs($owner, 'sanctum')
+            ->deleteJson("/api/v1/ingredients/{$ingredientId}")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Bahan baku yang sudah dipakai di resep menu tidak dapat dihapus.');
+
+        $this->actingAs($owner, 'sanctum')
+            ->putJson("/api/v1/menus/{$menu->id}/ingredients", [
+                'ingredients' => [],
+            ])
+            ->assertOk();
+
+        $this->actingAs($owner, 'sanctum')
+            ->deleteJson("/api/v1/ingredients/{$ingredientId}")
+            ->assertOk();
+
+        $this->assertDatabaseMissing('ingredients', [
+            'id' => $ingredientId,
+        ]);
+    }
+
+    /**
+     * Verify ingredient stock is deducted on order, menu auto closes when stock runs out,
+     * and stock is restored when item is cancelled.
+     */
+    public function test_inventory_is_deducted_and_restored_through_order_flow(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $kitchen = User::query()->where('username', 'kitchen01')->firstOrFail();
+        $table = Table::query()->where('code', 'T01')->firstOrFail();
+        $menu = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+
+        $ingredientId = $this->actingAs($owner, 'sanctum')
+            ->postJson('/api/v1/ingredients', [
+                'code' => 'BHN-STOK-01',
+                'name' => 'Bahan Test Stok',
+                'unit' => 'gram',
+                'current_stock' => 10,
+                'minimum_stock' => 0,
+                'is_active' => true,
+            ])
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->actingAs($owner, 'sanctum')
+            ->putJson("/api/v1/menus/{$menu->id}/ingredients", [
+                'ingredients' => [
+                    [
+                        'ingredient_id' => $ingredientId,
+                        'qty_per_portion' => 10,
+                    ],
+                ],
+            ])
+            ->assertOk();
+
+        $menu->refresh();
+        $this->assertTrue((bool) $menu->is_stock_available);
+
+        $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'DINE_IN',
+            'table_id' => $table->id,
+            'guest_count' => 2,
+        ])->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [
+                ['menu_id' => $menu->id, 'qty' => 1],
+            ],
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $ingredientId,
+            'current_stock' => 0,
+        ]);
+        $this->assertDatabaseHas('order_items', [
+            'menu_id' => $menu->id,
+            'stock_deducted' => true,
+        ]);
+        $this->assertDatabaseHas('ingredient_stock_movements', [
+            'ingredient_id' => $ingredientId,
+            'movement_type' => 'ORDER_OUT',
+        ]);
+
+        $menu->refresh();
+        $this->assertFalse((bool) $menu->is_stock_available);
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [
+                ['menu_id' => $menu->id, 'qty' => 1],
+            ],
+        ])->assertStatus(422);
+
+        $orderItem = OrderItem::query()->where('menu_id', $menu->id)->latest('id')->firstOrFail();
+
+        $this->actingAs($kitchen, 'sanctum')
+            ->patchJson("/api/v1/order-items/{$orderItem->id}/status", ['status' => 'CANCELLED'])
+            ->assertOk();
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $ingredientId,
+            'current_stock' => 10,
+        ]);
+        $this->assertDatabaseHas('order_items', [
+            'id' => $orderItem->id,
+            'stock_deducted' => false,
+            'status' => 'CANCELLED',
+        ]);
+        $this->assertDatabaseHas('ingredient_stock_movements', [
+            'ingredient_id' => $ingredientId,
+            'movement_type' => 'ORDER_RESTORE',
+        ]);
+
+        $menu->refresh();
+        $this->assertTrue((bool) $menu->is_stock_available);
+    }
+
+    /**
+     * Verify voiding a bill restores deducted inventory and reopens menu stock.
+     */
+    public function test_void_bill_restores_inventory_and_menu_stock(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $table = Table::query()->where('code', 'T01')->firstOrFail();
+        $menu = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+
+        $ingredientId = $this->actingAs($owner, 'sanctum')
+            ->postJson('/api/v1/ingredients', [
+                'code' => 'BHN-STOK-VOID',
+                'name' => 'Bahan Void Test',
+                'unit' => 'gram',
+                'current_stock' => 20,
+                'minimum_stock' => 0,
+                'is_active' => true,
+            ])
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->actingAs($owner, 'sanctum')
+            ->putJson("/api/v1/menus/{$menu->id}/ingredients", [
+                'ingredients' => [
+                    [
+                        'ingredient_id' => $ingredientId,
+                        'qty_per_portion' => 20,
+                    ],
+                ],
+            ])
+            ->assertOk();
+
+        $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'DINE_IN',
+            'table_id' => $table->id,
+            'guest_count' => 2,
+        ])->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [
+                ['menu_id' => $menu->id, 'qty' => 1],
+            ],
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $ingredientId,
+            'current_stock' => 0,
+        ]);
+
+        $this->assertDatabaseHas('menus', [
+            'id' => $menu->id,
+            'is_stock_available' => false,
+        ]);
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/bills/{$billId}/void", [
+                'reason' => 'Pelanggan batal datang',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'VOID');
+
+        $this->assertDatabaseHas('ingredients', [
+            'id' => $ingredientId,
+            'current_stock' => 20,
+        ]);
+
+        $this->assertDatabaseHas('menus', [
+            'id' => $menu->id,
+            'is_stock_available' => true,
+        ]);
+
+        $this->assertDatabaseHas('ingredient_stock_movements', [
+            'ingredient_id' => $ingredientId,
+            'movement_type' => 'ORDER_RESTORE',
+        ]);
     }
 
     /**
@@ -1490,6 +1799,21 @@ class ExampleTest extends TestCase
         $this->assertStringContainsString('section,key,value', $exportContent);
         $this->assertStringContainsString('summary,gross_sales,64000.00', $exportContent);
         $this->assertStringContainsString('daily_trend,' . now()->toDateString(), $exportContent);
+
+        $excelResponse = $this->actingAs($owner, 'sanctum')
+            ->get('/api/v1/reports/sales-summary/export-excel?date_from=' . now()->subDay()->toDateString() . '&date_to=' . now()->toDateString());
+
+        $excelResponse
+            ->assertOk()
+            ->assertHeader('content-type', 'application/vnd.ms-excel; charset=UTF-8')
+            ->assertHeader('content-disposition');
+
+        $excelContent = $excelResponse->streamedContent();
+
+        $this->assertStringContainsString('<?xml version="1.0" encoding="UTF-8"?>', $excelContent);
+        $this->assertStringContainsString('<Worksheet ss:Name="Laporan Penjualan">', $excelContent);
+        $this->assertStringContainsString('Ringkasan', $excelContent);
+        $this->assertStringContainsString('64000.00', $excelContent);
 
         $auditResponse = $this->actingAs($owner, 'sanctum')
             ->getJson('/api/v1/audit-logs?entity_type=bill&per_page=5');

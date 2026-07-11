@@ -93,6 +93,22 @@ class ReportController extends Controller
         ]);
     }
 
+    public function exportSalesSummaryExcel(Request $request): StreamedResponse
+    {
+        $payload = $this->buildSalesSummaryPayload($request);
+        $fileName = sprintf(
+            'sales-summary-%s-to-%s.xls',
+            $payload['filters']['date_from'],
+            $payload['filters']['date_to'],
+        );
+
+        return response()->streamDownload(function () use ($payload) {
+            echo $this->buildSalesSummarySpreadsheetXml($payload);
+        }, $fileName, [
+            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
+        ]);
+    }
+
     private function buildSalesSummaryPayload(Request $request): array
     {
         $validated = $request->validate([
@@ -256,5 +272,100 @@ class ReportController extends Controller
             'daily_trend' => $dailyTrend,
             'top_tables' => $topTables,
         ];
+    }
+
+    private function buildSalesSummarySpreadsheetXml(array $payload): string
+    {
+        $rows = [
+            ['Bagian', 'Kunci', 'Nilai', 'Nilai 2', 'Nilai 3', 'Nilai 4', 'Nilai 5'],
+        ];
+
+        foreach ($payload['summary'] as $key => $value) {
+            $rows[] = ['Ringkasan', (string) $key, (string) $value];
+        }
+
+        foreach ($payload['payment_methods'] as $row) {
+            $rows[] = [
+                'Metode Pembayaran',
+                (string) $row['payment_method'],
+                (string) $row['gross_total'],
+                (string) $row['refund_total'],
+                (string) $row['void_total'],
+                (string) $row['net_total'],
+                (string) $row['payments_count'],
+            ];
+        }
+
+        foreach ($payload['bill_types'] as $row) {
+            $rows[] = [
+                'Tipe Pesanan',
+                (string) $row['bill_type'],
+                (string) $row['gross_total'],
+                (string) $row['bills_count'],
+            ];
+        }
+
+        foreach ($payload['top_items'] as $row) {
+            $rows[] = [
+                'Menu Terlaris',
+                (string) $row['menu_name'],
+                (string) $row['menu_id'],
+                (string) $row['total_qty'],
+                (string) $row['gross_total'],
+            ];
+        }
+
+        foreach ($payload['daily_trend'] as $row) {
+            $rows[] = [
+                'Tren Harian',
+                (string) $row['date'],
+                (string) $row['gross_total'],
+                (string) $row['refund_total'],
+                (string) $row['net_total'],
+                (string) $row['paid_bills_count'],
+            ];
+        }
+
+        foreach ($payload['top_tables'] as $row) {
+            $rows[] = [
+                'Performa Meja',
+                (string) ($row['table_code'] ?? '-'),
+                (string) ($row['table_name'] ?? '-'),
+                (string) $row['gross_total'],
+                (string) $row['bills_count'],
+            ];
+        }
+
+        $worksheetRows = collect($rows)->map(function (array $row): string {
+            $cells = collect($row)->map(function (string $value): string {
+                return sprintf(
+                    '<Cell><Data ss:Type="String">%s</Data></Cell>',
+                    $this->escapeSpreadsheetValue($value),
+                );
+            })->implode('');
+
+            return "<Row>{$cells}</Row>";
+        })->implode('');
+
+        return <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <Worksheet ss:Name="Laporan Penjualan">
+  <Table>
+   {$worksheetRows}
+  </Table>
+ </Worksheet>
+</Workbook>
+XML;
+    }
+
+    private function escapeSpreadsheetValue(string $value): string
+    {
+        return htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
     }
 }

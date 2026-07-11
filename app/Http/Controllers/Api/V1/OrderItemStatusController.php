@@ -7,6 +7,7 @@ use App\Models\OrderItem;
 use App\Support\AuditLogger;
 use App\Support\BillOrderState;
 use App\Support\BillTotals;
+use App\Support\InventoryManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -90,6 +91,14 @@ class OrderItemStatusController extends Controller
             }
 
             $orderItem->update($payload);
+
+            if ($validated['status'] === 'CANCELLED' && $previousStatus !== 'CANCELLED') {
+                InventoryManager::restoreForOrderItem(
+                    orderItem: $orderItem->fresh(['menu']),
+                    userId: $user->id,
+                    reason: "Order item {$orderItem->id} dibatalkan",
+                );
+            }
 
             $order = $orderItem->order()->with(['items', 'bill.orders.items'])->firstOrFail();
             $statuses = $order->items->pluck('status');

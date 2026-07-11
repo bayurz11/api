@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Menu extends Model
 {
@@ -19,6 +20,7 @@ class Menu extends Model
         'price',
         'station_type',
         'is_available',
+        'is_stock_available',
         'is_active',
     ];
 
@@ -27,6 +29,7 @@ class Menu extends Model
         return [
             'price' => 'decimal:2',
             'is_available' => 'boolean',
+            'is_stock_available' => 'boolean',
             'is_active' => 'boolean',
         ];
     }
@@ -34,5 +37,12 @@ class Menu extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(MenuCategory::class, 'category_id');
+    }
+
+    public function recipeIngredients(): BelongsToMany
+    {
+        return $this->belongsToMany(Ingredient::class, 'menu_ingredients')
+            ->withPivot('qty_per_portion')
+            ->withTimestamps();
     }
 }
