@@ -50,4 +50,9 @@ class Ingredient extends Model
     {
         return $this->hasMany(IngredientStockMovement::class);
     }
+
+    public function shoppingNotes(): HasMany
+    {
+        return $this->hasMany(ShoppingNote::class);
+    }
 }

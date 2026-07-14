@@ -1162,7 +1162,6 @@ class ExampleTest extends TestCase
         $menu = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
 
         $createResponse = $this->actingAs($owner, 'sanctum')->postJson('/api/v1/ingredients', [
-            'code' => 'BHN-999',
             'name' => 'Cabai Rawit',
             'unit' => 'gram',
             'current_stock' => 2500,
@@ -1173,7 +1172,7 @@ class ExampleTest extends TestCase
 
         $createResponse
             ->assertCreated()
-            ->assertJsonPath('data.code', 'BHN-999')
+            ->assertJsonPath('data.code', 'BRG-001')
             ->assertJsonPath('data.current_stock', '2500.00');
 
         $ingredientId = $createResponse->json('data.id');
@@ -1182,7 +1181,7 @@ class ExampleTest extends TestCase
             ->getJson('/api/v1/ingredients')
             ->assertOk()
             ->assertJsonFragment([
-                'code' => 'BHN-999',
+                'code' => 'BRG-001',
                 'name' => 'Cabai Rawit',
             ]);
 
@@ -1196,13 +1195,13 @@ class ExampleTest extends TestCase
                 ],
             ])
             ->assertOk()
-            ->assertJsonPath('data.ingredients.0.code', 'BHN-999')
+            ->assertJsonPath('data.ingredients.0.code', 'BRG-001')
             ->assertJsonPath('data.ingredients.0.qty_per_portion', 12);
 
         $this->actingAs($owner, 'sanctum')
             ->getJson("/api/v1/menus/{$menu->id}/ingredients")
             ->assertOk()
-            ->assertJsonPath('data.ingredients.0.code', 'BHN-999');
+            ->assertJsonPath('data.ingredients.0.code', 'BRG-001');
 
         $this->actingAs($owner, 'sanctum')
             ->postJson("/api/v1/ingredients/{$ingredientId}/adjust-stock", [
@@ -1233,7 +1232,7 @@ class ExampleTest extends TestCase
         $this->actingAs($owner, 'sanctum')
             ->deleteJson("/api/v1/ingredients/{$ingredientId}")
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Bahan baku yang sudah dipakai di resep menu tidak dapat dihapus.');
+            ->assertJsonPath('message', 'Stok barang yang sudah dipakai di menu tidak dapat dihapus.');
 
         $this->actingAs($owner, 'sanctum')
             ->putJson("/api/v1/menus/{$menu->id}/ingredients", [

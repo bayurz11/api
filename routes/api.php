@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\V1\QrMenuController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ReservationController;
 use App\Http\Controllers\Api\V1\RestaurantProfileController;
+use App\Http\Controllers\Api\V1\ShoppingNoteController;
 use App\Http\Controllers\Api\V1\TableController;
 use App\Http\Controllers\Api\V1\WaiterChecklistController;
 use Illuminate\Support\Facades\Route;
@@ -75,6 +76,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/menu-categories', [MenuCategoryController::class, 'index']);
             Route::get('/menus', [MenuController::class, 'index']);
             Route::get('/ingredients', [IngredientController::class, 'index']);
+            Route::get('/shopping-notes', [ShoppingNoteController::class, 'index']);
             Route::get('/menus/{menu}/ingredients', [MenuIngredientController::class, 'index']);
         });
 
@@ -89,6 +91,10 @@ Route::prefix('v1')->group(function () {
             Route::patch('/ingredients/{ingredient}', [IngredientController::class, 'update']);
             Route::delete('/ingredients/{ingredient}', [IngredientController::class, 'destroy']);
             Route::post('/ingredients/{ingredient}/adjust-stock', [IngredientController::class, 'adjustStock']);
+            Route::post('/shopping-notes', [ShoppingNoteController::class, 'store']);
+            Route::patch('/shopping-notes/{shoppingNote}', [ShoppingNoteController::class, 'update']);
+            Route::delete('/shopping-notes/{shoppingNote}', [ShoppingNoteController::class, 'destroy']);
+            Route::post('/shopping-notes/sync-low-stock', [ShoppingNoteController::class, 'syncLowStock']);
             Route::put('/menus/{menu}/ingredients', [MenuIngredientController::class, 'sync']);
         });
 

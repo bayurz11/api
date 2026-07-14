@@ -10,7 +10,6 @@ use App\Support\InventoryManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 
 class IngredientController extends Controller
 {
@@ -39,7 +38,6 @@ class IngredientController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'code' => ['required', 'string', 'max:50', 'unique:ingredients,code'],
             'name' => ['required', 'string', 'max:255'],
             'unit' => ['required', 'string', 'max:30'],
             'current_stock' => ['nullable', 'numeric', 'min:0'],
@@ -53,7 +51,7 @@ class IngredientController extends Controller
 
         $ingredient = DB::transaction(function () use ($validated, $user) {
             $ingredient = Ingredient::query()->create([
-                'code' => $validated['code'],
+                'code' => $this->generateNextStockCode(),
                 'name' => $validated['name'],
                 'unit' => $validated['unit'],
                 'current_stock' => $validated['current_stock'] ?? 0,
@@ -103,7 +101,6 @@ class IngredientController extends Controller
     public function update(Request $request, Ingredient $ingredient): JsonResponse
     {
         $validated = $request->validate([
-            'code' => ['sometimes', 'required', 'string', 'max:50', Rule::unique('ingredients', 'code')->ignore($ingredient->id)],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'unit' => ['sometimes', 'required', 'string', 'max:30'],
             'minimum_stock' => ['sometimes', 'numeric', 'min:0'],
@@ -144,7 +141,7 @@ class IngredientController extends Controller
         abort_if(
             $ingredient->menus()->exists() || $ingredient->linkedMenus()->exists(),
             422,
-            'Bahan baku yang sudah dipakai di resep menu tidak dapat dihapus.',
+            'Stok barang yang sudah dipakai di menu tidak dapat dihapus.',
         );
 
         $before = $ingredient->toArray();
@@ -236,5 +233,18 @@ class IngredientController extends Controller
             'message' => 'Stok barang berhasil diperbarui.',
             'data' => $ingredient->fresh()->loadCount(['menus', 'linkedMenus']),
         ]);
+    }
+
+    private function generateNextStockCode(): string
+    {
+        $maxSequence = 0;
+
+        foreach (Ingredient::query()->pluck('code') as $code) {
+            if (preg_match('/^BRG-(\d+)$/', (string) $code, $matches) === 1) {
+                $maxSequence = max($maxSequence, (int) $matches[1]);
+            }
+        }
+
+        return sprintf('BRG-%03d', $maxSequence + 1);
     }
 }
