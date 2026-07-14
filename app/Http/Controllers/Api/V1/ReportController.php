@@ -8,7 +8,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use ZipArchive;
 
 class ReportController extends Controller
 {
@@ -93,20 +95,27 @@ class ReportController extends Controller
         ]);
     }
 
-    public function exportSalesSummaryExcel(Request $request): StreamedResponse
+    public function exportSalesSummaryExcel(Request $request): BinaryFileResponse
     {
         $payload = $this->buildSalesSummaryPayload($request);
         $fileName = sprintf(
-            'sales-summary-%s-to-%s.xls',
+            'sales-summary-%s-to-%s.xlsx',
             $payload['filters']['date_from'],
             $payload['filters']['date_to'],
         );
+        $tempPath = tempnam(sys_get_temp_dir(), 'sales-summary-');
+        abort_if($tempPath === false, 500, 'Gagal menyiapkan file export laporan.');
 
-        return response()->streamDownload(function () use ($payload) {
-            echo $this->buildSalesSummarySpreadsheetXml($payload);
-        }, $fileName, [
-            'Content-Type' => 'application/vnd.ms-excel; charset=UTF-8',
-        ]);
+        $xlsxPath = $tempPath.'.xlsx';
+        @unlink($tempPath);
+
+        $this->buildSalesSummaryXlsx($payload, $xlsxPath);
+
+        return response()->download(
+            $xlsxPath,
+            $fileName,
+            ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+        )->deleteFileAfterSend(true);
     }
 
     private function buildSalesSummaryPayload(Request $request): array
@@ -274,7 +283,7 @@ class ReportController extends Controller
         ];
     }
 
-    private function buildSalesSummarySpreadsheetXml(array $payload): string
+    private function buildSalesSummaryRows(array $payload): array
     {
         $rows = [
             ['Bagian', 'Kunci', 'Nilai', 'Nilai 2', 'Nilai 3', 'Nilai 4', 'Nilai 5'],
@@ -336,32 +345,197 @@ class ReportController extends Controller
             ];
         }
 
-        $worksheetRows = collect($rows)->map(function (array $row): string {
-            $cells = collect($row)->map(function (string $value): string {
-                return sprintf(
-                    '<Cell><Data ss:Type="String">%s</Data></Cell>',
-                    $this->escapeSpreadsheetValue($value),
-                );
-            })->implode('');
+        return $rows;
+    }
 
-            return "<Row>{$cells}</Row>";
+    private function buildSalesSummaryXlsx(array $payload, string $targetPath): void
+    {
+        $archive = new ZipArchive();
+        $result = $archive->open($targetPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        abort_if($result !== true, 500, 'Gagal membuat file Excel laporan penjualan.');
+
+        $rows = $this->buildSalesSummaryRows($payload);
+
+        $archive->addFromString('[Content_Types].xml', $this->contentTypesXml());
+        $archive->addFromString('_rels/.rels', $this->rootRelationshipsXml());
+        $archive->addFromString('docProps/app.xml', $this->appPropertiesXml());
+        $archive->addFromString('docProps/core.xml', $this->corePropertiesXml());
+        $archive->addFromString('xl/workbook.xml', $this->workbookXml());
+        $archive->addFromString('xl/_rels/workbook.xml.rels', $this->workbookRelationshipsXml());
+        $archive->addFromString('xl/styles.xml', $this->stylesXml());
+        $archive->addFromString('xl/worksheets/sheet1.xml', $this->worksheetXml($rows));
+        $archive->close();
+    }
+
+    private function contentTypesXml(): string
+    {
+        return <<<'XML'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>
+XML;
+    }
+
+    private function rootRelationshipsXml(): string
+    {
+        return <<<'XML'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>
+XML;
+    }
+
+    private function appPropertiesXml(): string
+    {
+        return <<<'XML'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+ xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>Laravel</Application>
+</Properties>
+XML;
+    }
+
+    private function corePropertiesXml(): string
+    {
+        $createdAt = now()->utc()->format('Y-m-d\TH:i:s\Z');
+
+        return <<<XML
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+ xmlns:dc="http://purl.org/dc/elements/1.1/"
+ xmlns:dcterms="http://purl.org/dc/terms/"
+ xmlns:dcmitype="http://purl.org/dc/dcmitype/"
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>Laporan Penjualan</dc:title>
+  <dc:creator>RestoPOS</dc:creator>
+  <cp:lastModifiedBy>RestoPOS</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">{$createdAt}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">{$createdAt}</dcterms:modified>
+</cp:coreProperties>
+XML;
+    }
+
+    private function workbookXml(): string
+    {
+        return <<<'XML'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Laporan Penjualan" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>
+XML;
+    }
+
+    private function workbookRelationshipsXml(): string
+    {
+        return <<<'XML'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>
+XML;
+    }
+
+    private function stylesXml(): string
+    {
+        return <<<'XML'
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="1">
+    <font>
+      <sz val="11"/>
+      <name val="Calibri"/>
+      <family val="2"/>
+    </font>
+  </fonts>
+  <fills count="2">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+  </fills>
+  <borders count="1">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+  </borders>
+  <cellStyleXfs count="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+  </cellStyleXfs>
+  <cellXfs count="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+  </cellXfs>
+  <cellStyles count="1">
+    <cellStyle name="Normal" xfId="0" builtinId="0"/>
+  </cellStyles>
+</styleSheet>
+XML;
+    }
+
+    private function worksheetXml(array $rows): string
+    {
+        $sheetRows = collect($rows)->map(function (array $row, int $rowIndex): string {
+            $cells = collect(array_values($row))->map(
+                fn (string $value, int $columnIndex): string => $this->worksheetCellXml(
+                    $rowIndex + 1,
+                    $columnIndex + 1,
+                    $value,
+                )
+            )->implode('');
+
+            return sprintf('<row r="%d">%s</row>', $rowIndex + 1, $cells);
         })->implode('');
 
         return <<<XML
-<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:html="http://www.w3.org/TR/REC-html40">
- <Worksheet ss:Name="Laporan Penjualan">
-  <Table>
-   {$worksheetRows}
-  </Table>
- </Worksheet>
-</Workbook>
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    {$sheetRows}
+  </sheetData>
+</worksheet>
 XML;
+    }
+
+    private function worksheetCellXml(int $rowNumber, int $columnNumber, string $value): string
+    {
+        $cellReference = $this->worksheetColumnName($columnNumber).$rowNumber;
+
+        if (is_numeric($value) && ! preg_match('/^0\d+$/', $value)) {
+            return sprintf(
+                '<c r="%s"><v>%s</v></c>',
+                $cellReference,
+                $this->escapeSpreadsheetValue($value),
+            );
+        }
+
+        return sprintf(
+            '<c r="%s" t="inlineStr"><is><t>%s</t></is></c>',
+            $cellReference,
+            $this->escapeSpreadsheetValue($value),
+        );
+    }
+
+    private function worksheetColumnName(int $columnNumber): string
+    {
+        $columnName = '';
+
+        while ($columnNumber > 0) {
+            $remainder = ($columnNumber - 1) % 26;
+            $columnName = chr(65 + $remainder).$columnName;
+            $columnNumber = intdiv($columnNumber - 1, 26);
+        }
+
+        return $columnName;
     }
 
     private function escapeSpreadsheetValue(string $value): string

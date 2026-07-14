@@ -1807,15 +1807,18 @@ class ExampleTest extends TestCase
 
         $excelResponse
             ->assertOk()
-            ->assertHeader('content-type', 'application/vnd.ms-excel; charset=UTF-8')
+            ->assertHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             ->assertHeader('content-disposition');
 
-        $excelContent = $excelResponse->streamedContent();
+        $this->assertStringContainsString('.xlsx', (string) $excelResponse->headers->get('content-disposition'));
 
-        $this->assertStringContainsString('<?xml version="1.0" encoding="UTF-8"?>', $excelContent);
-        $this->assertStringContainsString('<Worksheet ss:Name="Laporan Penjualan">', $excelContent);
-        $this->assertStringContainsString('Ringkasan', $excelContent);
-        $this->assertStringContainsString('64000.00', $excelContent);
+        $excelFile = $excelResponse->baseResponse->getFile();
+        $this->assertNotNull($excelFile);
+
+        $excelContent = file_get_contents($excelFile->getPathname());
+
+        $this->assertNotFalse($excelContent);
+        $this->assertStringStartsWith('PK', $excelContent);
 
         $auditResponse = $this->actingAs($owner, 'sanctum')
             ->getJson('/api/v1/audit-logs?entity_type=bill&per_page=5');

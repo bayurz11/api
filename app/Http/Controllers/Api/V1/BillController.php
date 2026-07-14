@@ -421,12 +421,24 @@ class BillController extends Controller
         $user = $request->user();
 
         $newBill = DB::transaction(function () use ($bill, $validated, $normalizedSplitItems, $sourceItemsById, $user) {
+            $resolvedCustomerName = null;
+
+            if (array_key_exists('customer_name', $validated)) {
+                $resolvedCustomerName = filled($validated['customer_name'])
+                    ? trim((string) $validated['customer_name'])
+                    : null;
+            } elseif (! empty($validated['customer_id'])) {
+                $resolvedCustomerName = null;
+            } else {
+                $resolvedCustomerName = $bill->customer_name;
+            }
+
             $newBill = Bill::query()->create([
                 'bill_no' => SequenceNumber::generate('BILL', Bill::class, 'bill_no'),
                 'bill_type' => $validated['customer_id'] ? 'CUSTOMER' : 'SPLIT',
                 'table_id' => null,
                 'customer_id' => $validated['customer_id'] ?? $bill->customer_id,
-                'customer_name' => $validated['customer_name'] ?? $bill->customer_name,
+                'customer_name' => $resolvedCustomerName,
                 'opened_by' => $user->id,
                 'cashier_id' => $user->id,
                 'guest_count' => $validated['guest_count'] ?? $bill->guest_count,
@@ -477,9 +489,16 @@ class BillController extends Controller
 
                 $relatedOrderItems = OrderItem::query()
                     ->where('bill_item_id', $sourceBillItem->id)
+                    ->orderBy('id')
                     ->get();
 
+                $remainingSplitQty = $splitQty;
+
                 foreach ($relatedOrderItems as $sourceOrderItem) {
+                    if ($remainingSplitQty <= 0) {
+                        break;
+                    }
+
                     $sourceOrder = Order::query()->findOrFail($sourceOrderItem->order_id);
 
                     /** @var Order|null $newOrder */
@@ -499,22 +518,22 @@ class BillController extends Controller
                     }
 
                     $sourceOrderQty = (int) $sourceOrderItem->qty;
+                    $moveQty = min($remainingSplitQty, $sourceOrderQty);
+                    abort_if($moveQty < 1, 422, "Jumlah split order untuk {$sourceBillItem->menu_name} tidak valid.");
 
-                    if ($splitQty === $sourceOrderQty) {
+                    if ($moveQty === $sourceOrderQty) {
                         $sourceOrderItem->update([
                             'order_id' => $newOrder->id,
                             'bill_item_id' => $movedBillItem->id,
                         ]);
                     } else {
-                        abort_if($splitQty > $sourceOrderQty, 422, "Jumlah split order untuk {$sourceBillItem->menu_name} melebihi qty yang tersedia.");
-
                         OrderItem::query()->create([
                             'order_id' => $newOrder->id,
                             'bill_item_id' => $movedBillItem->id,
                             'menu_id' => $sourceOrderItem->menu_id,
                             'category_id' => $sourceOrderItem->category_id,
                             'station_type' => $sourceOrderItem->station_type,
-                            'qty' => $splitQty,
+                            'qty' => $moveQty,
                             'notes' => $sourceOrderItem->notes,
                             'status' => $sourceOrderItem->status,
                             'accepted_at' => $sourceOrderItem->accepted_at,
@@ -524,13 +543,17 @@ class BillController extends Controller
                         ]);
 
                         $sourceOrderItem->update([
-                            'qty' => $sourceOrderQty - $splitQty,
+                            'qty' => $sourceOrderQty - $moveQty,
                         ]);
                     }
+
+                    $remainingSplitQty -= $moveQty;
 
                     $this->syncOrderStatus($newOrder->fresh());
                     $this->syncOrDeleteOrder($sourceOrder->fresh());
                 }
+
+                abort_if($remainingSplitQty > 0, 422, "Jumlah split order untuk {$sourceBillItem->menu_name} melebihi qty order yang tersedia.");
             }
 
             $newBill = BillTotals::recalculate($newBill);
