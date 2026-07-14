@@ -65,6 +65,9 @@ class MenuIngredientController extends Controller
             ->all();
 
         $menu->recipeIngredients()->sync($syncPayload);
+        $menu->forceFill([
+            'stock_item_id' => null,
+        ])->saveQuietly();
         $menu->load([
             'recipeIngredients' => fn ($query) => $query->orderBy('ingredients.name'),
         ]);

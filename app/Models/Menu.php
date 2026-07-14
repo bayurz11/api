@@ -13,6 +13,8 @@ class Menu extends Model
 
     protected $fillable = [
         'category_id',
+        'stock_item_id',
+        'stock_deduction_qty',
         'sku',
         'name',
         'description',
@@ -28,6 +30,7 @@ class Menu extends Model
     {
         return [
             'price' => 'decimal:2',
+            'stock_deduction_qty' => 'decimal:2',
             'is_available' => 'boolean',
             'is_stock_available' => 'boolean',
             'is_active' => 'boolean',
@@ -37,6 +40,11 @@ class Menu extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(MenuCategory::class, 'category_id');
+    }
+
+    public function stockItem(): BelongsTo
+    {
+        return $this->belongsTo(Ingredient::class, 'stock_item_id');
     }
 
     public function recipeIngredients(): BelongsToMany

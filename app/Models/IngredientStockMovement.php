@@ -16,6 +16,8 @@ class IngredientStockMovement extends Model
         'qty_delta',
         'stock_before',
         'stock_after',
+        'unit_cost',
+        'total_cost',
         'reason',
         'created_by',
     ];
@@ -26,6 +28,8 @@ class IngredientStockMovement extends Model
             'qty_delta' => 'decimal:2',
             'stock_before' => 'decimal:2',
             'stock_after' => 'decimal:2',
+            'unit_cost' => 'decimal:2',
+            'total_cost' => 'decimal:2',
         ];
     }
 

@@ -105,34 +105,22 @@ class DemoDataSeeder extends Seeder
         );
 
         DB::table('ingredients')->upsert([
-            ['code' => 'BHN-001', 'name' => 'Beras', 'unit' => 'gram', 'current_stock' => 20000, 'minimum_stock' => 5000, 'notes' => 'Bahan nasi utama', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['code' => 'BHN-002', 'name' => 'Ayam Fillet', 'unit' => 'gram', 'current_stock' => 12000, 'minimum_stock' => 3000, 'notes' => 'Untuk lauk ayam', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['code' => 'BHN-003', 'name' => 'Telur', 'unit' => 'butir', 'current_stock' => 180, 'minimum_stock' => 36, 'notes' => 'Telur ayam negeri', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['code' => 'BHN-004', 'name' => 'Bumbu Nasi Goreng', 'unit' => 'gram', 'current_stock' => 3000, 'minimum_stock' => 500, 'notes' => 'Bumbu racik nasi goreng', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['code' => 'BHN-005', 'name' => 'Teh Melati', 'unit' => 'gram', 'current_stock' => 1500, 'minimum_stock' => 300, 'notes' => 'Untuk teh panas dan es teh', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['code' => 'BHN-006', 'name' => 'Gula Cair', 'unit' => 'ml', 'current_stock' => 7000, 'minimum_stock' => 1500, 'notes' => 'Pemanis minuman', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['code' => 'BHN-007', 'name' => 'Jeruk Peras', 'unit' => 'buah', 'current_stock' => 140, 'minimum_stock' => 30, 'notes' => 'Untuk es jeruk', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['code' => 'BHN-008', 'name' => 'Es Batu', 'unit' => 'gram', 'current_stock' => 25000, 'minimum_stock' => 5000, 'notes' => 'Untuk minuman dingin', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-        ], ['code'], ['name', 'unit', 'current_stock', 'minimum_stock', 'notes', 'is_active', 'updated_at']);
-
-        $nasiGorengId = DB::table('menus')->where('sku', 'MKN-001')->value('id');
-        $esTehId = DB::table('menus')->where('sku', 'MNM-001')->value('id');
-        $esJerukId = DB::table('menus')->where('sku', 'MNM-003')->value('id');
+            ['code' => 'BHN-001', 'name' => 'Beras', 'unit' => 'porsi', 'current_stock' => 120, 'minimum_stock' => 20, 'purchase_price' => 4000, 'last_purchase_price' => 4000, 'notes' => 'Stok nasi siap jual', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-002', 'name' => 'Ayam Fillet', 'unit' => 'porsi', 'current_stock' => 80, 'minimum_stock' => 15, 'purchase_price' => 12000, 'last_purchase_price' => 12000, 'notes' => 'Stok lauk ayam', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-003', 'name' => 'Telur', 'unit' => 'butir', 'current_stock' => 180, 'minimum_stock' => 36, 'purchase_price' => 2500, 'last_purchase_price' => 2500, 'notes' => 'Tambahan telur', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-004', 'name' => 'Bumbu Nasi Goreng', 'unit' => 'porsi', 'current_stock' => 90, 'minimum_stock' => 15, 'purchase_price' => 2500, 'last_purchase_price' => 2500, 'notes' => 'Paket bumbu siap masak', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-005', 'name' => 'Teh Melati', 'unit' => 'gelas', 'current_stock' => 150, 'minimum_stock' => 30, 'purchase_price' => 2500, 'last_purchase_price' => 2500, 'notes' => 'Untuk teh panas dan es teh', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-006', 'name' => 'Gula Cair', 'unit' => 'gelas', 'current_stock' => 220, 'minimum_stock' => 40, 'purchase_price' => 1200, 'last_purchase_price' => 1200, 'notes' => 'Pemanis minuman', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-007', 'name' => 'Jeruk Peras', 'unit' => 'gelas', 'current_stock' => 90, 'minimum_stock' => 20, 'purchase_price' => 3500, 'last_purchase_price' => 3500, 'notes' => 'Untuk es jeruk', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-008', 'name' => 'Es Batu', 'unit' => 'gelas', 'current_stock' => 300, 'minimum_stock' => 60, 'purchase_price' => 300, 'last_purchase_price' => 300, 'notes' => 'Untuk minuman dingin', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+        ], ['code'], ['name', 'unit', 'current_stock', 'minimum_stock', 'purchase_price', 'last_purchase_price', 'notes', 'is_active', 'updated_at']);
 
         $ingredients = DB::table('ingredients')->pluck('id', 'code');
-
-        DB::table('menu_ingredients')->upsert([
-            ['menu_id' => $nasiGorengId, 'ingredient_id' => $ingredients['BHN-001'], 'qty_per_portion' => 180, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['menu_id' => $nasiGorengId, 'ingredient_id' => $ingredients['BHN-002'], 'qty_per_portion' => 90, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['menu_id' => $nasiGorengId, 'ingredient_id' => $ingredients['BHN-003'], 'qty_per_portion' => 1, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['menu_id' => $nasiGorengId, 'ingredient_id' => $ingredients['BHN-004'], 'qty_per_portion' => 18, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['menu_id' => $esTehId, 'ingredient_id' => $ingredients['BHN-005'], 'qty_per_portion' => 10, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['menu_id' => $esTehId, 'ingredient_id' => $ingredients['BHN-006'], 'qty_per_portion' => 25, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['menu_id' => $esTehId, 'ingredient_id' => $ingredients['BHN-008'], 'qty_per_portion' => 120, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['menu_id' => $esJerukId, 'ingredient_id' => $ingredients['BHN-006'], 'qty_per_portion' => 20, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['menu_id' => $esJerukId, 'ingredient_id' => $ingredients['BHN-007'], 'qty_per_portion' => 2, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-            ['menu_id' => $esJerukId, 'ingredient_id' => $ingredients['BHN-008'], 'qty_per_portion' => 120, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-        ], ['menu_id', 'ingredient_id'], ['qty_per_portion', 'updated_at']);
+        DB::table('menus')->where('sku', 'MKN-001')->update(['stock_item_id' => $ingredients['BHN-001'], 'stock_deduction_qty' => 1]);
+        DB::table('menus')->where('sku', 'MKN-009')->update(['stock_item_id' => $ingredients['BHN-002'], 'stock_deduction_qty' => 1]);
+        DB::table('menus')->where('sku', 'MKN-010')->update(['stock_item_id' => $ingredients['BHN-002'], 'stock_deduction_qty' => 1]);
+        DB::table('menus')->where('sku', 'MNM-001')->update(['stock_item_id' => $ingredients['BHN-005'], 'stock_deduction_qty' => 1]);
+        DB::table('menus')->where('sku', 'MNM-003')->update(['stock_item_id' => $ingredients['BHN-007'], 'stock_deduction_qty' => 1]);
 
     }
 

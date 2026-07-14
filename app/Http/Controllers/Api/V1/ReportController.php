@@ -260,6 +260,21 @@ class ReportController extends Controller
             ->values();
 
         $netSales = (float) $grossSales - (float) $refundTotal;
+        $purchaseTotal = (float) DB::table('ingredient_stock_movements')
+            ->whereIn('movement_type', ['INITIAL', 'ADJUST_IN'])
+            ->where('created_at', '>=', $rangeStart)
+            ->where('created_at', '<', $rangeEnd)
+            ->sum('total_cost');
+
+        $estimatedCogs = (float) DB::table('bill_items')
+            ->join('bills', 'bills.id', '=', 'bill_items.bill_id')
+            ->join('payments', 'payments.bill_id', '=', 'bills.id')
+            ->join('menus', 'menus.id', '=', 'bill_items.menu_id')
+            ->leftJoin('ingredients', 'ingredients.id', '=', 'menus.stock_item_id')
+            ->where('payments.paid_at', '>=', $rangeStart)
+            ->where('payments.paid_at', '<', $rangeEnd)
+            ->where('payments.status', 'PAID')
+            ->sum(DB::raw('bill_items.qty * COALESCE(menus.stock_deduction_qty, 0) * COALESCE(NULLIF(ingredients.last_purchase_price, 0), ingredients.purchase_price, 0)'));
 
         return [
             'filters' => [
@@ -271,6 +286,9 @@ class ReportController extends Controller
                 'refund_total' => number_format((float) $refundTotal, 2, '.', ''),
                 'void_total' => number_format((float) $voidTotal, 2, '.', ''),
                 'net_sales' => number_format($netSales, 2, '.', ''),
+                'purchase_total' => number_format($purchaseTotal, 2, '.', ''),
+                'estimated_cogs' => number_format($estimatedCogs, 2, '.', ''),
+                'estimated_profit' => number_format($netSales - $estimatedCogs, 2, '.', ''),
                 'paid_bills_count' => $paidBillsCount,
                 'refunded_bills_count' => $refundedBillsCount,
                 'average_bill' => number_format($paidBillsCount > 0 ? $netSales / $paidBillsCount : 0, 2, '.', ''),

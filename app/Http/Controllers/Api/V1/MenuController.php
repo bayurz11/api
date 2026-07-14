@@ -23,7 +23,7 @@ class MenuController extends Controller
     public function index(Request $request): JsonResponse
     {
         $menus = Menu::query()
-            ->with('category:id,name,station_type')
+            ->with(['category:id,name,station_type', 'stockItem:id,code,name,unit,current_stock,is_active'])
             ->withCount('recipeIngredients')
             ->when($request->filled('category_id'), fn ($query) => $query->where('category_id', $request->integer('category_id')))
             ->when($request->boolean('available_only', false), fn ($query) => $query->where('is_available', true)->where('is_stock_available', true)->where('is_active', true))
@@ -53,6 +53,8 @@ class MenuController extends Controller
             'image_url' => ['nullable', 'string'],
             'price' => ['required', 'numeric', 'min:0'],
             'station_type' => ['required', 'string', Rule::in(self::STATION_TYPES)],
+            'stock_item_id' => ['nullable', 'integer', 'exists:ingredients,id'],
+            'stock_deduction_qty' => ['nullable', 'numeric', 'gt:0'],
             'is_available' => ['nullable', 'boolean'],
             'is_active' => ['nullable', 'boolean'],
         ]);
@@ -62,6 +64,8 @@ class MenuController extends Controller
         $menu = DB::transaction(function () use ($validated, $category) {
             return Menu::query()->create([
                 'category_id' => $validated['category_id'],
+                'stock_item_id' => $validated['stock_item_id'] ?? null,
+                'stock_deduction_qty' => $validated['stock_deduction_qty'] ?? 1,
                 'sku' => $this->generateSkuForCategory($category),
                 'name' => $validated['name'],
                 'description' => $validated['description'] ?? null,
@@ -87,7 +91,7 @@ class MenuController extends Controller
 
         return response()->json([
             'message' => 'Menu berhasil dibuat.',
-            'data' => $menu->load('category:id,name,station_type'),
+            'data' => $menu->load(['category:id,name,station_type', 'stockItem:id,code,name,unit,current_stock,is_active']),
         ], 201);
     }
 
@@ -100,6 +104,8 @@ class MenuController extends Controller
             'image_url' => ['nullable', 'string'],
             'price' => ['sometimes', 'numeric', 'min:0'],
             'station_type' => ['sometimes', 'required', 'string', Rule::in(self::STATION_TYPES)],
+            'stock_item_id' => ['nullable', 'integer', 'exists:ingredients,id'],
+            'stock_deduction_qty' => ['nullable', 'numeric', 'gt:0'],
             'is_available' => ['sometimes', 'boolean'],
             'is_active' => ['sometimes', 'boolean'],
         ]);
@@ -109,7 +115,7 @@ class MenuController extends Controller
 
         $this->resolveValidCategory($resolvedCategoryId, $resolvedStationType);
 
-        $before = $menu->only(['category_id', 'sku', 'name', 'description', 'image_url', 'price', 'station_type', 'is_available', 'is_active']);
+        $before = $menu->only(['category_id', 'stock_item_id', 'stock_deduction_qty', 'sku', 'name', 'description', 'image_url', 'price', 'station_type', 'is_available', 'is_active']);
 
         DB::transaction(function () use ($menu, $validated, $resolvedCategoryId) {
             $menu->fill($validated);
@@ -130,12 +136,12 @@ class MenuController extends Controller
             entityType: 'menu',
             entityId: $menu->id,
             before: $before,
-            after: $menu->only(['category_id', 'sku', 'name', 'description', 'image_url', 'price', 'station_type', 'is_available', 'is_active']),
+            after: $menu->only(['category_id', 'stock_item_id', 'stock_deduction_qty', 'sku', 'name', 'description', 'image_url', 'price', 'station_type', 'is_available', 'is_active']),
         );
 
         return response()->json([
             'message' => 'Menu berhasil diperbarui.',
-            'data' => $menu->fresh('category:id,name,station_type'),
+            'data' => $menu->fresh(['category:id,name,station_type', 'stockItem:id,code,name,unit,current_stock,is_active']),
         ]);
     }
 
