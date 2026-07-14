@@ -3,7 +3,10 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Bill;
 use App\Models\OrderItem;
+use App\Models\Reservation;
+use App\Models\Setting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -147,6 +150,85 @@ class DashboardController extends Controller
             ->selectRaw("SUM(CASE WHEN status = 'SERVED' AND served_at >= ? AND served_at < ? THEN 1 ELSE 0 END) as served_today_count", [$todayStart, $tomorrowStart])
             ->first();
 
+        $reservationRemindersEnabled = $this->boolSetting('reservation_reminders_enabled', true);
+        $reservationReminderMinutesBefore = $this->intSetting('reservation_reminder_minutes_before', 120);
+        $eventRemindersEnabled = $this->boolSetting('event_reminders_enabled', true);
+        $dashboardReminderLimit = $this->intSetting('dashboard_reminder_limit', 4);
+
+        $reservationItems = collect();
+        if ($reservationRemindersEnabled) {
+            $reservationWindowEnd = now()->copy()->addMinutes($reservationReminderMinutesBefore);
+            $reservationItems = Reservation::query()
+                ->with(['customer:id,name', 'table:id,code,name'])
+                ->where('status', 'BOOKED')
+                ->where('reserved_at', '>=', now())
+                ->where('reserved_at', '<=', $reservationWindowEnd)
+                ->orderBy('reserved_at')
+                ->limit($dashboardReminderLimit)
+                ->get()
+                ->map(function (Reservation $reservation) {
+                    $minutesRemaining = max(0, now()->diffInMinutes($reservation->reserved_at, false));
+
+                    return [
+                        'type' => 'reservation',
+                        'id' => $reservation->id,
+                        'code' => $reservation->reservation_code,
+                        'title' => 'Reservasi akan datang',
+                        'subtitle' => trim(($reservation->customer?->name ?? 'Pelanggan reservasi')
+                            .' · '
+                            .($reservation->table?->code ?? 'Tanpa meja')),
+                        'customer_name' => $reservation->customer?->name,
+                        'table_code' => $reservation->table?->code,
+                        'table_name' => $reservation->table?->name,
+                        'guest_count' => (int) $reservation->guest_count,
+                        'status' => $reservation->status,
+                        'scheduled_at' => optional($reservation->reserved_at)->toIso8601String(),
+                        'minutes_remaining' => $minutesRemaining,
+                        'notes' => $reservation->notes,
+                        'action_route' => '/settings/master-data/reservations',
+                    ];
+                })
+                ->values();
+        }
+
+        $eventItems = collect();
+        if ($eventRemindersEnabled) {
+            $eventItems = Bill::query()
+                ->with(['table:id,code,name'])
+                ->where('bill_type', 'CATERING')
+                ->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID'])
+                ->orderBy('opened_at')
+                ->limit($dashboardReminderLimit)
+                ->get()
+                ->map(function (Bill $bill) {
+                    return [
+                        'type' => 'event',
+                        'id' => $bill->id,
+                        'code' => $bill->bill_no,
+                        'title' => 'Transaksi event aktif',
+                        'subtitle' => trim(($bill->customer_name ?: 'Pelanggan event')
+                            .' · '
+                            .($bill->table?->code ?? 'Tanpa meja')),
+                        'customer_name' => $bill->customer_name,
+                        'table_code' => $bill->table?->code,
+                        'table_name' => $bill->table?->name,
+                        'guest_count' => (int) $bill->guest_count,
+                        'status' => $bill->status,
+                        'scheduled_at' => optional($bill->opened_at)->toIso8601String(),
+                        'minutes_remaining' => null,
+                        'notes' => null,
+                        'action_route' => '/bills',
+                    ];
+                })
+                ->values();
+        }
+
+        $reminderItems = $reservationItems
+            ->concat($eventItems)
+            ->sortBy('scheduled_at')
+            ->take(max(1, $dashboardReminderLimit))
+            ->values();
+
         return response()->json([
             'summary' => [
                 'total_tables' => DB::table('tables')->count(),
@@ -181,6 +263,36 @@ class DashboardController extends Controller
                     ],
                 ],
             ],
+            'reminders' => [
+                'settings' => [
+                    'reservation_reminders_enabled' => $reservationRemindersEnabled,
+                    'reservation_reminder_minutes_before' => $reservationReminderMinutesBefore,
+                    'event_reminders_enabled' => $eventRemindersEnabled,
+                    'dashboard_reminder_limit' => $dashboardReminderLimit,
+                ],
+                'summary' => [
+                    'reservation_due_count' => $reservationItems->count(),
+                    'event_due_count' => $eventItems->count(),
+                    'total_due_count' => $reminderItems->count(),
+                ],
+                'items' => $reminderItems,
+            ],
         ]);
+    }
+
+    private function boolSetting(string $key, bool $default): bool
+    {
+        $value = Setting::getValue($key, $default ? '1' : '0');
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return in_array((string) $value, ['1', 'true', 'TRUE'], true);
+    }
+
+    private function intSetting(string $key, int $default): int
+    {
+        return (int) Setting::getValue($key, (string) $default);
     }
 }

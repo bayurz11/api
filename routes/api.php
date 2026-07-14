@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\PrintController;
 use App\Http\Controllers\Api\V1\QrMenuController;
 use App\Http\Controllers\Api\V1\ReportController;
+use App\Http\Controllers\Api\V1\ReminderSettingsController;
 use App\Http\Controllers\Api\V1\ReservationController;
 use App\Http\Controllers\Api\V1\RestaurantProfileController;
 use App\Http\Controllers\Api\V1\ShoppingNoteController;
@@ -51,10 +52,12 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware('permission:settings.view')->group(function () {
             Route::get('/settings/restaurant-profile', [RestaurantProfileController::class, 'show']);
+            Route::get('/settings/reminders', [ReminderSettingsController::class, 'show']);
         });
 
         Route::middleware('permission:settings.manage')->group(function () {
             Route::post('/settings/restaurant-profile', [RestaurantProfileController::class, 'update']);
+            Route::post('/settings/reminders', [ReminderSettingsController::class, 'update']);
         });
 
         Route::middleware('permission:tables.view')->group(function () {
