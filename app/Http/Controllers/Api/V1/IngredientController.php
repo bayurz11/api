@@ -14,6 +14,16 @@ use Illuminate\Support\Facades\DB;
 
 class IngredientController extends Controller
 {
+    private const ADJUSTMENT_TYPES = [
+        'RESTOCK',
+        'OPNAME_ADD',
+        'OPNAME_SUBTRACT',
+        'DAMAGED',
+        'LOST',
+        'MANUAL_ADD',
+        'MANUAL_SUBTRACT',
+    ];
+
     public function index(Request $request): JsonResponse
     {
         $ingredients = Ingredient::query()
@@ -168,7 +178,8 @@ class IngredientController extends Controller
     {
         $validated = $request->validate([
             'qty_delta' => ['required', 'numeric', 'not_in:0'],
-            'reason' => ['required', 'string', 'max:255'],
+            'adjustment_type' => ['required', 'string', 'in:'.implode(',', self::ADJUSTMENT_TYPES)],
+            'reason' => ['nullable', 'string', 'max:255'],
             'unit_cost' => ['nullable', 'numeric', 'min:0'],
         ]);
 
@@ -179,6 +190,8 @@ class IngredientController extends Controller
             $stockBefore = (float) $freshIngredient->current_stock;
             $delta = (float) $validated['qty_delta'];
             $stockAfter = round($stockBefore + $delta, 2);
+            $adjustmentType = $validated['adjustment_type'];
+            $resolvedReason = $validated['reason'] ?? $this->defaultReasonForAdjustmentType($adjustmentType);
 
             abort_if($stockAfter < 0, 422, 'Stok akhir tidak boleh kurang dari 0.');
 
@@ -187,6 +200,9 @@ class IngredientController extends Controller
                 'last_purchase_price' => $delta > 0 && array_key_exists('unit_cost', $validated)
                     ? (float) $validated['unit_cost']
                     : $freshIngredient->last_purchase_price,
+                'purchase_price' => $adjustmentType === 'RESTOCK' && array_key_exists('unit_cost', $validated)
+                    ? (float) $validated['unit_cost']
+                    : $freshIngredient->purchase_price,
             ]);
 
             $unitCost = $delta > 0
@@ -203,13 +219,13 @@ class IngredientController extends Controller
 
             IngredientStockMovement::query()->create([
                 'ingredient_id' => $freshIngredient->id,
-                'movement_type' => $delta > 0 ? 'ADJUST_IN' : 'ADJUST_OUT',
+                'movement_type' => $this->resolveMovementType($adjustmentType),
                 'qty_delta' => $delta,
                 'stock_before' => $stockBefore,
                 'stock_after' => $stockAfter,
                 'unit_cost' => $unitCost,
                 'total_cost' => $unitCost === null ? null : round(abs($delta) * $unitCost, 2),
-                'reason' => $validated['reason'],
+                'reason' => $resolvedReason,
                 'created_by' => $user?->id,
             ]);
 
@@ -227,8 +243,9 @@ class IngredientController extends Controller
             entityId: $ingredient->id,
             after: [
                 'qty_delta' => $validated['qty_delta'],
+                'adjustment_type' => $validated['adjustment_type'],
                 'unit_cost' => $validated['unit_cost'] ?? null,
-                'reason' => $validated['reason'],
+                'reason' => $validated['reason'] ?? $this->defaultReasonForAdjustmentType($validated['adjustment_type']),
                 'current_stock' => $ingredient->current_stock,
             ],
         );
@@ -236,6 +253,19 @@ class IngredientController extends Controller
         return response()->json([
             'message' => 'Stok barang berhasil diperbarui.',
             'data' => $ingredient->fresh()->loadCount(['menus', 'linkedMenus']),
+        ]);
+    }
+
+    public function movements(Ingredient $ingredient): JsonResponse
+    {
+        $movements = $ingredient->stockMovements()
+            ->with('user:id,name,username')
+            ->latest()
+            ->limit(30)
+            ->get();
+
+        return response()->json([
+            'data' => $movements,
         ]);
     }
 
@@ -250,5 +280,33 @@ class IngredientController extends Controller
         }
 
         return sprintf('BRG-%03d', $maxSequence + 1);
+    }
+
+    private function resolveMovementType(string $adjustmentType): string
+    {
+        return match ($adjustmentType) {
+            'RESTOCK' => 'RESTOCK_IN',
+            'OPNAME_ADD' => 'OPNAME_IN',
+            'OPNAME_SUBTRACT' => 'OPNAME_OUT',
+            'DAMAGED' => 'DAMAGED_OUT',
+            'LOST' => 'LOST_OUT',
+            'MANUAL_ADD' => 'ADJUST_IN',
+            'MANUAL_SUBTRACT' => 'ADJUST_OUT',
+            default => 'ADJUST_OUT',
+        };
+    }
+
+    private function defaultReasonForAdjustmentType(string $adjustmentType): string
+    {
+        return match ($adjustmentType) {
+            'RESTOCK' => 'Belanja stok masuk.',
+            'OPNAME_ADD' => 'Koreksi stok hasil opname (lebih).',
+            'OPNAME_SUBTRACT' => 'Koreksi stok hasil opname (kurang).',
+            'DAMAGED' => 'Barang rusak.',
+            'LOST' => 'Barang hilang / susut.',
+            'MANUAL_ADD' => 'Penyesuaian manual tambah stok.',
+            'MANUAL_SUBTRACT' => 'Penyesuaian manual kurangi stok.',
+            default => 'Penyesuaian stok.',
+        };
     }
 }

@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Ingredient;
+use App\Models\IngredientStockMovement;
 use App\Models\ShoppingNote;
 use App\Support\AuditLogger;
+use App\Support\InventoryManager;
+use App\Support\ShoppingNoteManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -102,22 +105,66 @@ class ShoppingNoteController extends Controller
         ]);
 
         $before = $shoppingNote->toArray();
+        $user = $request->user();
 
-        $shoppingNote->fill($validated);
-        $shoppingNote->updated_by = $request->user()->id;
-        $shoppingNote->completed_at = ($validated['status'] ?? null) === 'BOUGHT'
-            ? now()
-            : (($validated['status'] ?? null) === 'OPEN' ? null : $shoppingNote->completed_at);
-        $shoppingNote->save();
+        $previousStatus = $shoppingNote->status;
+
+        DB::transaction(function () use ($shoppingNote, $validated, $user, $previousStatus) {
+            $shoppingNote->fill($validated);
+            $shoppingNote->updated_by = $user->id;
+            $shoppingNote->completed_at = ($validated['status'] ?? null) === 'BOUGHT'
+                ? now()
+                : (($validated['status'] ?? null) === 'OPEN' ? null : $shoppingNote->completed_at);
+            $shoppingNote->save();
+
+            if (
+                ($validated['status'] ?? null) === 'BOUGHT' &&
+                $previousStatus !== 'BOUGHT' &&
+                $shoppingNote->ingredient_id !== null &&
+                (float) ($shoppingNote->requested_qty ?? 0) > 0
+            ) {
+                $ingredient = Ingredient::query()->lockForUpdate()->find($shoppingNote->ingredient_id);
+
+                if ($ingredient !== null) {
+                    $stockBefore = (float) $ingredient->current_stock;
+                    $qtyDelta = (float) $shoppingNote->requested_qty;
+                    $stockAfter = round($stockBefore + $qtyDelta, 2);
+                    $unitCost = $shoppingNote->estimated_unit_price !== null
+                        ? (float) $shoppingNote->estimated_unit_price
+                        : ((float) $ingredient->purchase_price > 0 ? (float) $ingredient->purchase_price : null);
+
+                    $ingredient->update([
+                        'current_stock' => $stockAfter,
+                        'last_purchase_price' => $unitCost ?? $ingredient->last_purchase_price,
+                        'purchase_price' => $unitCost ?? $ingredient->purchase_price,
+                    ]);
+
+                    IngredientStockMovement::query()->create([
+                        'ingredient_id' => $ingredient->id,
+                        'movement_type' => 'RESTOCK_IN',
+                        'qty_delta' => $qtyDelta,
+                        'stock_before' => $stockBefore,
+                        'stock_after' => $stockAfter,
+                        'unit_cost' => $unitCost,
+                        'total_cost' => $unitCost === null ? null : round($qtyDelta * $unitCost, 2),
+                        'reason' => 'Stok masuk dari catatan belanja yang ditandai selesai dibeli.',
+                        'created_by' => $user->id,
+                    ]);
+
+                    ShoppingNoteManager::syncSingle($ingredient->fresh(), $user->id);
+                    InventoryManager::syncMenusByIngredientIds([$ingredient->id]);
+                }
+            }
+        });
 
         AuditLogger::log(
-            userId: $request->user()->id,
-            roleName: $request->user()->getRoleNames()->first(),
+            userId: $user->id,
+            roleName: $user->getRoleNames()->first(),
             action: 'shopping_note.updated',
             entityType: 'shopping_note',
             entityId: $shoppingNote->id,
             before: $before,
-            after: $shoppingNote->toArray(),
+            after: $shoppingNote->fresh()->toArray(),
         );
 
         return response()->json([

@@ -79,6 +79,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/menu-categories', [MenuCategoryController::class, 'index']);
             Route::get('/menus', [MenuController::class, 'index']);
             Route::get('/ingredients', [IngredientController::class, 'index']);
+            Route::get('/ingredients/{ingredient}/movements', [IngredientController::class, 'movements']);
             Route::get('/shopping-notes', [ShoppingNoteController::class, 'index']);
             Route::get('/menus/{menu}/ingredients', [MenuIngredientController::class, 'index']);
         });
