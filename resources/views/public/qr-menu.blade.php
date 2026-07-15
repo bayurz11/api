@@ -283,9 +283,23 @@
         }
 
         .menu-cover-fallback {
-            font-size: 44px;
-            color: rgba(0, 75, 54, 0.82);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
             font-weight: 800;
+            color: rgba(0, 75, 54, 0.82);
+        }
+
+        .menu-cover-fallback .icon {
+            font-size: 40px;
+            line-height: 1;
+        }
+
+        .menu-cover-fallback .sku {
+            font-size: 18px;
+            letter-spacing: 0.4px;
         }
 
         .menu-body {
@@ -372,46 +386,90 @@
             width: fit-content;
         }
 
-        .variant-stack {
-            display: grid;
-            gap: 10px;
+        .variant-composer {
+            margin-top: 2px;
+            padding: 16px;
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            background: linear-gradient(180deg, #F8FDF8 0%, #FFFDF7 100%);
         }
 
-        .variant-card {
-            border: 1px solid #F4E2AA;
-            border-radius: 18px;
-            background: #FFFDF7;
-            padding: 12px;
-        }
-
-        .variant-card.unavailable {
-            border-color: #F5CEC7;
-            background: #FFFFFB;
-        }
-
-        .variant-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: start;
-            gap: 10px;
-        }
-
-        .variant-top strong {
-            font-size: 15px;
-            line-height: 1.3;
-        }
-
-        .variant-top small {
-            display: block;
-            margin-top: 4px;
-            color: var(--muted);
-        }
-
-        .variant-badge {
-            color: var(--danger);
-            font-size: 13px;
+        .variant-title {
+            margin: 0 0 12px;
+            font-size: 17px;
             font-weight: 900;
-            white-space: nowrap;
+            color: var(--deep);
+        }
+
+        .variant-selector {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .variant-chip {
+            border: 1px solid var(--line);
+            background: var(--white);
+            color: var(--deep);
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .variant-chip.active {
+            background: var(--green);
+            border-color: var(--green);
+            color: var(--white);
+            box-shadow: 0 10px 18px rgba(13, 107, 58, 0.18);
+        }
+
+        .variant-chip.unavailable {
+            color: var(--danger);
+            border-color: #F7B8AE;
+            background: #FFF9F8;
+            cursor: default;
+        }
+
+        .variant-panel {
+            margin-top: 14px;
+            padding: 14px;
+            border: 1px solid #F4E2AA;
+            border-radius: 22px;
+            background: var(--white);
+        }
+
+        .variant-panel h4 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 900;
+            color: var(--deep);
+        }
+
+        .variant-panel p {
+            margin: 8px 0 0;
+            color: var(--muted);
+            line-height: 1.4;
+        }
+
+        .variant-summary {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .variant-summary-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: var(--soft);
+            color: var(--deep);
+            font-size: 13px;
+            font-weight: 800;
         }
 
         .qty-row {
@@ -451,6 +509,36 @@
             font-size: 22px;
             font-weight: 800;
             outline: none;
+        }
+
+        .qty-panel {
+            margin-top: 10px;
+            padding: 12px;
+            border-radius: 18px;
+            background: #FFFCF1;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .qty-label {
+            flex: 1;
+            font-size: 14px;
+            font-weight: 800;
+            color: var(--deep);
+        }
+
+        .menu-ready {
+            width: 100%;
+            padding: 12px;
+            border-radius: 16px;
+            background: var(--soft);
+            color: var(--deep);
+            font-size: 13px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .note-field {
@@ -631,7 +719,7 @@
                     <p>Pilih kategori dan cari menu seperti pada halaman tambah order di aplikasi kasir.</p>
                 </div>
                 <div class="search-box">
-                    <span class="search-icon">⌕</span>
+                    <span class="search-icon">&#128269;</span>
                     <input id="searchInput" class="input" type="search" placeholder="Cari menu, SKU, atau kategori">
                 </div>
                 <div id="categoryChips" class="chips-row"></div>
@@ -669,6 +757,7 @@
             selectedCategory: 'Semua',
             query: '',
             selected: new Map(),
+            activeOptionByMenu: {},
         };
 
         const menuContainer = document.getElementById('menuContainer');
@@ -735,6 +824,11 @@
             }
 
             refreshCart();
+            renderMenus();
+        }
+
+        function setActiveOption(menuId, optionId) {
+            state.activeOptionByMenu[menuId] = optionId;
             renderMenus();
         }
 
@@ -909,7 +1003,10 @@
                 } else {
                     const fallback = document.createElement('div');
                     fallback.className = 'menu-cover-fallback';
-                    fallback.textContent = menu.station_type === 'BAR' ? '☕' : '🍽';
+                    fallback.innerHTML = `
+                        <div class="icon">${menu.station_type === 'BAR' ? '☕' : '🍽'}</div>
+                        <div class="sku">${menu.sku ?? ''}</div>
+                    `;
                     cover.appendChild(fallback);
                 }
 
@@ -958,41 +1055,113 @@
                 }
 
                 if (hasOptions) {
-                    const variantStack = document.createElement('div');
-                    variantStack.className = 'variant-stack';
+                    const selectableOptions = options.filter((option) => option.is_available && option.is_active);
+                    const selectedOptions = options.filter((option) => currentQty(menu.id, option.id) > 0);
+                    const activeOptionId = state.activeOptionByMenu[menu.id]
+                        ?? selectableOptions[0]?.id
+                        ?? options[0]?.id
+                        ?? null;
+                    const activeOption = options.find((option) => option.id === activeOptionId) ?? null;
+
+                    if (activeOptionId !== null && state.activeOptionByMenu[menu.id] == null) {
+                        state.activeOptionByMenu[menu.id] = activeOptionId;
+                    }
+
+                    const composer = document.createElement('div');
+                    composer.className = 'variant-composer';
+
+                    const title = document.createElement('h4');
+                    title.className = 'variant-title';
+                    title.textContent = 'Pilih varian';
+                    composer.appendChild(title);
+
+                    const selector = document.createElement('div');
+                    selector.className = 'variant-selector';
 
                     options.forEach((option) => {
                         const optionAvailable = option.is_available && option.is_active;
-                        const variantCard = document.createElement('div');
-                        variantCard.className = `variant-card${optionAvailable ? '' : ' unavailable'}`;
-
-                        const top = document.createElement('div');
-                        top.className = 'variant-top';
-
-                        const left = document.createElement('div');
-                        const extraPrice = Number(option.price_delta || 0);
-                        left.innerHTML = `
-                            <strong>${option.name}</strong>
-                            <small>${extraPrice > 0 ? `Tambahan Rp ${currency(extraPrice)}` : 'Tanpa biaya tambahan'}</small>
-                        `;
-
-                        top.appendChild(left);
-
-                        if (!optionAvailable) {
-                            const badge = document.createElement('span');
-                            badge.className = 'variant-badge';
-                            badge.textContent = 'Habis';
-                            top.appendChild(badge);
+                        const chip = document.createElement('button');
+                        chip.type = 'button';
+                        chip.className = `variant-chip${option.id === activeOptionId ? ' active' : ''}${optionAvailable ? '' : ' unavailable'}`;
+                        chip.textContent = optionAvailable ? option.name : `${option.name} Habis`;
+                        if (optionAvailable) {
+                            chip.addEventListener('click', () => setActiveOption(menu.id, option.id));
+                        } else {
+                            chip.disabled = true;
                         }
-
-                        variantCard.appendChild(top);
-                        variantCard.appendChild(createQtyComposer(menu, option, !optionAvailable));
-                        variantStack.appendChild(variantCard);
+                        selector.appendChild(chip);
                     });
 
-                    body.appendChild(variantStack);
+                    composer.appendChild(selector);
+
+                    if (activeOption) {
+                        const activeOptionAvailable = activeOption.is_available && activeOption.is_active;
+                        const panel = document.createElement('div');
+                        panel.className = 'variant-panel';
+
+                        const heading = document.createElement('h4');
+                        heading.textContent = activeOption.name;
+                        panel.appendChild(heading);
+
+                        const description = document.createElement('p');
+                        const extraPrice = Number(activeOption.price_delta || 0);
+                        description.textContent = activeOptionAvailable
+                            ? (
+                                extraPrice > 0
+                                    ? `Tambahan Rp ${currency(extraPrice)}. Atur jumlah untuk varian ini. Pindah ke varian lain tidak akan menghapus input yang sudah dipilih.`
+                                    : 'Atur jumlah untuk varian ini. Pindah ke varian lain tidak akan menghapus input yang sudah dipilih.'
+                            )
+                            : 'Varian ini sedang habis dan belum bisa dipesan.';
+                        panel.appendChild(description);
+
+                        if (activeOptionAvailable) {
+                            const qtyPanel = document.createElement('div');
+                            qtyPanel.className = 'qty-panel';
+
+                            const qtyLabel = document.createElement('div');
+                            qtyLabel.className = 'qty-label';
+                            qtyLabel.textContent = 'Jumlah';
+                            qtyPanel.appendChild(qtyLabel);
+
+                            const qtyComposer = createQtyComposer(menu, activeOption, false);
+                            const qtyRow = qtyComposer.firstChild;
+                            if (qtyRow) {
+                                qtyPanel.appendChild(qtyRow);
+                            }
+                            panel.appendChild(qtyPanel);
+
+                            if (qtyComposer.children[1]) {
+                                panel.appendChild(qtyComposer.children[1]);
+                            }
+                        }
+
+                        composer.appendChild(panel);
+                    }
+
+                    if (selectedOptions.length > 0) {
+                        const summary = document.createElement('div');
+                        summary.className = 'variant-summary';
+                        selectedOptions.forEach((option) => {
+                            const summaryPill = document.createElement('div');
+                            summaryPill.className = 'variant-summary-pill';
+                            summaryPill.textContent = `${option.name} • ${currentQty(menu.id, option.id)} item`;
+                            summary.appendChild(summaryPill);
+                        });
+                        composer.appendChild(summary);
+                    }
+
+                    body.appendChild(composer);
                 } else {
                     body.appendChild(createQtyComposer(menu, null, !canOrder));
+                }
+
+                if (selectedTotal > 0) {
+                    const ready = document.createElement('div');
+                    ready.className = 'menu-ready';
+                    ready.textContent = hasOptions
+                        ? 'Pilihan menu sudah disiapkan untuk dikirim.'
+                        : 'Menu sudah masuk ke draft order.';
+                    body.appendChild(ready);
                 }
 
                 card.append(cover, body);
