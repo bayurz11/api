@@ -451,6 +451,7 @@
             margin: 8px 0 0;
             color: var(--muted);
             line-height: 1.4;
+            font-size: 12px;
         }
 
         .variant-summary {
@@ -528,6 +529,10 @@
             color: var(--deep);
         }
 
+        .qty-panel .qty-row {
+            margin-top: 0;
+        }
+
         .menu-ready {
             width: 100%;
             padding: 12px;
@@ -569,6 +574,10 @@
             display: flex;
             justify-content: center;
             pointer-events: none;
+        }
+
+        .cart-bar.hidden {
+            display: none;
         }
 
         .cart-inner {
@@ -652,7 +661,7 @@
 
         @media (max-width: 760px) {
             .page {
-                padding-bottom: 132px;
+                padding: 14px 12px 132px;
             }
 
             .customer-grid {
@@ -671,10 +680,81 @@
 
             .menu-grid {
                 grid-template-columns: 1fr;
+                gap: 14px;
             }
 
             .menu-cover {
                 height: 164px;
+            }
+
+            .menu-body {
+                padding: 14px;
+            }
+
+            .price-row {
+                flex-wrap: wrap;
+            }
+
+            .selected-pill {
+                margin-left: 0;
+            }
+
+            .variant-composer {
+                padding: 14px;
+            }
+
+            .variant-selector {
+                gap: 8px;
+            }
+
+            .variant-chip {
+                padding: 9px 14px;
+                font-size: 13px;
+            }
+
+            .qty-panel {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+
+            .qty-label {
+                flex: none;
+            }
+
+            .qty-row {
+                width: 100%;
+                gap: 10px;
+            }
+
+            .qty-btn {
+                width: 44px;
+                height: 44px;
+                border-radius: 14px;
+                font-size: 22px;
+                flex: 0 0 44px;
+            }
+
+            .qty-input {
+                width: 100%;
+                min-width: 0;
+                flex: 1;
+                font-size: 20px;
+            }
+
+            .cart-bar {
+                left: 12px;
+                right: 12px;
+                bottom: 12px;
+            }
+
+            .cart-inner {
+                width: 100%;
+            }
+
+            .submit-button {
+                padding: 15px 16px;
+                font-size: 16px;
             }
         }
     </style>
@@ -741,7 +821,7 @@
         <div id="menuContainer" class="menu-grid"></div>
     </div>
 
-    <div class="cart-bar">
+    <div id="cartBar" class="cart-bar hidden">
         <div class="cart-inner">
             <button id="checkoutButton" class="submit-button" type="button" disabled>Kirim 0 item | Rp 0</button>
             <div id="cartNote" class="cart-note">Pilih menu terlebih dahulu.</div>
@@ -763,6 +843,7 @@
         const menuContainer = document.getElementById('menuContainer');
         const menuEmpty = document.getElementById('menuEmpty');
         const categoryChips = document.getElementById('categoryChips');
+        const cartBar = document.getElementById('cartBar');
         const checkoutButton = document.getElementById('checkoutButton');
         const cartNote = document.getElementById('cartNote');
         const feedbackError = document.getElementById('feedbackError');
@@ -1174,6 +1255,7 @@
             const totalQty = items.reduce((sum, item) => sum + item.qty, 0);
             const totalPrice = items.reduce((sum, item) => sum + (item.qty * item.unitPrice), 0);
 
+            cartBar.classList.toggle('hidden', totalQty === 0);
             checkoutButton.disabled = totalQty === 0;
             checkoutButton.textContent = `Kirim ${totalQty} item | Rp ${currency(totalPrice)}`;
             cartNote.textContent = totalQty === 0
