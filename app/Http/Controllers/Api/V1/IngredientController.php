@@ -7,6 +7,7 @@ use App\Models\Ingredient;
 use App\Models\IngredientStockMovement;
 use App\Support\AuditLogger;
 use App\Support\InventoryManager;
+use App\Support\ShoppingNoteManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -82,6 +83,7 @@ class IngredientController extends Controller
         });
 
         InventoryManager::syncMenusByIngredientIds([$ingredient->id]);
+        ShoppingNoteManager::syncSingle($ingredient->fresh(), $user?->id);
 
         AuditLogger::log(
             userId: $user->id,
@@ -119,6 +121,7 @@ class IngredientController extends Controller
         $ingredient->fill($validated);
         $ingredient->save();
         InventoryManager::syncMenusByIngredientIds([$ingredient->id]);
+        ShoppingNoteManager::syncSingle($ingredient->fresh(), $user?->id);
 
         AuditLogger::log(
             userId: $user->id,
@@ -214,6 +217,7 @@ class IngredientController extends Controller
         });
 
         InventoryManager::syncMenusByIngredientIds([$ingredient->id]);
+        ShoppingNoteManager::syncSingle($ingredient->fresh(), $user?->id);
 
         AuditLogger::log(
             userId: $user->id,

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Controllers\Api\V1\RestaurantProfileController;
 use App\Models\Bill;
 use App\Models\Customer;
+use App\Models\Ingredient;
 use App\Models\Menu;
 use App\Models\MenuCategory;
 use App\Models\OrderItem;
@@ -12,6 +13,7 @@ use App\Models\Payment;
 use App\Models\Printer;
 use App\Models\QrOrder;
 use App\Models\Reservation;
+use App\Models\ShoppingNote;
 use App\Models\Setting;
 use App\Models\Table;
 use App\Models\User;
@@ -215,6 +217,58 @@ class ExampleTest extends TestCase
     }
 
     /**
+     * Verify low stock automatically updates menu stock availability and shopping notes.
+     */
+    public function test_low_stock_sync_updates_menu_availability_and_shopping_notes(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $menu = Menu::query()->where('sku', 'MKN-009')->firstOrFail();
+        $stockItem = Ingredient::query()->findOrFail($menu->stock_item_id);
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson("/api/v1/ingredients/{$stockItem->id}/adjust-stock", [
+                'qty_delta' => -(float) $stockItem->current_stock,
+                'reason' => 'Tes stok habis',
+            ])
+            ->assertOk();
+
+        $menu->refresh();
+        $stockItem->refresh();
+
+        $this->assertSame('0.00', $stockItem->current_stock);
+        $this->assertFalse($menu->is_stock_available);
+        $this->assertDatabaseHas('shopping_notes', [
+            'ingredient_id' => $stockItem->id,
+            'source' => 'AUTO',
+            'status' => 'OPEN',
+        ]);
+
+        $openNote = ShoppingNote::query()
+            ->where('ingredient_id', $stockItem->id)
+            ->where('source', 'AUTO')
+            ->where('status', 'OPEN')
+            ->firstOrFail();
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson("/api/v1/ingredients/{$stockItem->id}/adjust-stock", [
+                'qty_delta' => (float) $stockItem->minimum_stock + 3,
+                'reason' => 'Tes stok masuk',
+                'unit_cost' => 45000,
+            ])
+            ->assertOk();
+
+        $menu->refresh();
+
+        $this->assertTrue($menu->is_stock_available);
+        $this->assertDatabaseHas('shopping_notes', [
+            'id' => $openNote->id,
+            'status' => 'CANCELLED',
+        ]);
+    }
+
+    /**
      * Verify station queue and payment flow work.
      */
     public function test_station_status_and_payment_flow_work(): void
@@ -364,6 +418,60 @@ class ExampleTest extends TestCase
                         'waiter' => ['ready_to_serve_count', 'served_today_count'],
                     ],
                 ],
+            ]);
+    }
+
+    /**
+     * Verify dashboard reminders include overdue reservations and active event bills.
+     */
+    public function test_dashboard_reminders_include_overdue_reservations_and_event_bills(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $customer = Customer::query()->firstOrFail();
+        $table = Table::query()->where('code', 'T01')->firstOrFail();
+
+        Reservation::query()->create([
+            'reservation_code' => 'RSV-TEST-001',
+            'customer_id' => $customer->id,
+            'table_id' => $table->id,
+            'guest_count' => 4,
+            'status' => 'BOOKED',
+            'reserved_at' => now()->subMinutes(20),
+            'notes' => 'Reminder overdue test',
+        ]);
+
+        Bill::query()->create([
+            'bill_no' => 'BILL-EVT-001',
+            'bill_type' => 'CATERING',
+            'status' => 'OPEN',
+            'table_id' => $table->id,
+            'customer_id' => $customer->id,
+            'customer_name' => $customer->name,
+            'guest_count' => 20,
+            'opened_by' => $owner->id,
+            'opened_at' => now()->subMinutes(90),
+            'subtotal' => 0,
+            'discount_amount' => 0,
+            'tax_amount' => 0,
+            'service_amount' => 0,
+            'grand_total' => 0,
+            'balance_due' => 0,
+        ]);
+
+        $response = $this->actingAs($owner, 'sanctum')->getJson('/api/v1/dashboard');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('reminders.summary.reservation_overdue_count', 1)
+            ->assertJsonFragment([
+                'type' => 'reservation',
+                'priority' => 'overdue',
+            ])
+            ->assertJsonFragment([
+                'type' => 'event',
+                'priority' => 'active',
             ]);
     }
 
@@ -1776,11 +1884,14 @@ class ExampleTest extends TestCase
             ->assertJsonPath('summary.gross_sales', '64000.00')
             ->assertJsonPath('summary.refund_total', '10000.00')
             ->assertJsonPath('summary.net_sales', '54000.00')
+            ->assertJsonPath('comparison.previous_period.date_to', now()->subDays(2)->toDateString())
+            ->assertJsonPath('comparison.net_sales.current', '54000.00')
             ->assertJsonPath('summary.paid_bills_count', 2)
             ->assertJsonPath('summary.refunded_bills_count', 1)
             ->assertJsonPath('payment_methods.0.payment_method', 'CASH')
             ->assertJsonPath('payment_methods.0.net_total', '26000.00')
             ->assertJsonPath('bill_types.0.bill_type', 'DINE_IN')
+            ->assertJsonPath('category_sales.0.category_name', 'Makanan')
             ->assertJsonPath('daily_trend.0.date', now()->subDay()->toDateString())
             ->assertJsonPath('daily_trend.0.net_total', '28000.00')
             ->assertJsonPath('daily_trend.1.date', now()->toDateString())
@@ -1799,6 +1910,7 @@ class ExampleTest extends TestCase
 
         $this->assertStringContainsString('section,key,value', $exportContent);
         $this->assertStringContainsString('summary,gross_sales,64000.00', $exportContent);
+        $this->assertStringContainsString('category_sales,Makanan', $exportContent);
         $this->assertStringContainsString('daily_trend,' . now()->toDateString(), $exportContent);
 
         $excelResponse = $this->actingAs($owner, 'sanctum')

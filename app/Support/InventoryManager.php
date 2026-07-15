@@ -75,6 +75,7 @@ class InventoryManager
         }
 
         self::syncMenusByIngredientIds($ingredientIds);
+        ShoppingNoteManager::syncByIngredientIds($ingredientIds, $userId);
     }
 
     public static function restoreForOrderItem(
@@ -144,6 +145,7 @@ class InventoryManager
 
         $orderItem->update(['stock_deducted' => false]);
         self::syncMenusByIngredientIds($ingredientIds);
+        ShoppingNoteManager::syncByIngredientIds($ingredientIds, $userId);
     }
 
     public static function syncMenusByIngredientIds(array $ingredientIds): void
@@ -254,6 +256,7 @@ class InventoryManager
         ]);
 
         self::syncMenusByIngredientIds([$stockItem->id]);
+        ShoppingNoteManager::syncByIngredientIds([$stockItem->id], $userId);
     }
 
     private static function restoreLinkedStockItem(
@@ -298,5 +301,6 @@ class InventoryManager
         ]);
 
         self::syncMenusByIngredientIds([$stockItem->id]);
+        ShoppingNoteManager::syncByIngredientIds([$stockItem->id], $userId);
     }
 }

@@ -156,24 +156,29 @@ class DashboardController extends Controller
         $dashboardReminderLimit = $this->intSetting('dashboard_reminder_limit', 4);
 
         $reservationItems = collect();
+        $reservationOverdueCount = 0;
         if ($reservationRemindersEnabled) {
             $reservationWindowEnd = now()->copy()->addMinutes($reservationReminderMinutesBefore);
             $reservationItems = Reservation::query()
                 ->with(['customer:id,name', 'table:id,code,name'])
                 ->where('status', 'BOOKED')
-                ->where('reserved_at', '>=', now())
+                ->where('reserved_at', '>=', now()->copy()->subHours(6))
                 ->where('reserved_at', '<=', $reservationWindowEnd)
                 ->orderBy('reserved_at')
-                ->limit($dashboardReminderLimit)
                 ->get()
                 ->map(function (Reservation $reservation) {
-                    $minutesRemaining = max(0, now()->diffInMinutes($reservation->reserved_at, false));
+                    $minutesRemaining = now()->diffInMinutes($reservation->reserved_at, false);
+                    $priority = $minutesRemaining < 0
+                        ? 'overdue'
+                        : ($minutesRemaining <= 30 ? 'soon' : 'upcoming');
 
                     return [
                         'type' => 'reservation',
                         'id' => $reservation->id,
                         'code' => $reservation->reservation_code,
-                        'title' => 'Reservasi akan datang',
+                        'title' => $minutesRemaining < 0
+                            ? 'Reservasi belum ditindak'
+                            : 'Reservasi akan datang',
                         'subtitle' => trim(($reservation->customer?->name ?? 'Pelanggan reservasi')
                             .' · '
                             .($reservation->table?->code ?? 'Tanpa meja')),
@@ -184,10 +189,23 @@ class DashboardController extends Controller
                         'status' => $reservation->status,
                         'scheduled_at' => optional($reservation->reserved_at)->toIso8601String(),
                         'minutes_remaining' => $minutesRemaining,
+                        'priority' => $priority,
                         'notes' => $reservation->notes,
                         'action_route' => '/settings/master-data/reservations',
                     ];
                 })
+                ->sortBy([
+                    ['priority', 'asc'],
+                    ['scheduled_at', 'asc'],
+                ])
+                ->values();
+
+            $reservationOverdueCount = $reservationItems
+                ->where('priority', 'overdue')
+                ->count();
+
+            $reservationItems = $reservationItems
+                ->take($dashboardReminderLimit)
                 ->values();
         }
 
@@ -201,6 +219,8 @@ class DashboardController extends Controller
                 ->limit($dashboardReminderLimit)
                 ->get()
                 ->map(function (Bill $bill) {
+                    $openedAt = $bill->opened_at ?? $bill->created_at;
+
                     return [
                         'type' => 'event',
                         'id' => $bill->id,
@@ -214,8 +234,11 @@ class DashboardController extends Controller
                         'table_name' => $bill->table?->name,
                         'guest_count' => (int) $bill->guest_count,
                         'status' => $bill->status,
-                        'scheduled_at' => optional($bill->opened_at)->toIso8601String(),
-                        'minutes_remaining' => null,
+                        'scheduled_at' => optional($openedAt)->toIso8601String(),
+                        'minutes_remaining' => $openedAt === null
+                            ? null
+                            : max(0, now()->diffInMinutes($openedAt)),
+                        'priority' => 'active',
                         'notes' => null,
                         'action_route' => '/bills',
                     ];
@@ -272,6 +295,7 @@ class DashboardController extends Controller
                 ],
                 'summary' => [
                     'reservation_due_count' => $reservationItems->count(),
+                    'reservation_overdue_count' => $reservationOverdueCount,
                     'event_due_count' => $eventItems->count(),
                     'total_due_count' => $reminderItems->count(),
                 ],

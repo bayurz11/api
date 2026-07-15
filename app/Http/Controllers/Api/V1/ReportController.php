@@ -68,6 +68,16 @@ class ReportController extends Controller
                 ]);
             }
 
+            foreach ($payload['category_sales'] as $row) {
+                fputcsv($handle, [
+                    'category_sales',
+                    $row['category_name'],
+                    $row['bills_count'],
+                    $row['total_qty'],
+                    $row['gross_total'],
+                ]);
+            }
+
             foreach ($payload['daily_trend'] as $row) {
                 fputcsv($handle, [
                     'daily_trend',
@@ -132,10 +142,17 @@ class ReportController extends Controller
 
         $rangeStart = Carbon::parse($dateFrom)->startOfDay();
         $rangeEnd = Carbon::parse($dateTo)->addDay()->startOfDay();
+        $periodDays = $rangeStart->diffInDays($rangeEnd);
+        $previousRangeStart = (clone $rangeStart)->subDays($periodDays);
+        $previousRangeEnd = clone $rangeStart;
 
         $paymentsBase = Payment::query()
             ->where('paid_at', '>=', $rangeStart)
             ->where('paid_at', '<', $rangeEnd);
+
+        $previousPaymentsBase = Payment::query()
+            ->where('paid_at', '>=', $previousRangeStart)
+            ->where('paid_at', '<', $previousRangeEnd);
 
         $grossSales = (clone $paymentsBase)
             ->where('status', 'PAID')
@@ -218,6 +235,30 @@ class ReportController extends Controller
             ])
             ->values();
 
+        $categorySales = DB::table('bill_items')
+            ->join('bills', 'bills.id', '=', 'bill_items.bill_id')
+            ->join('payments', 'payments.bill_id', '=', 'bills.id')
+            ->leftJoin('menus', 'menus.id', '=', 'bill_items.menu_id')
+            ->leftJoin('menu_categories', 'menu_categories.id', '=', 'menus.category_id')
+            ->where('payments.paid_at', '>=', $rangeStart)
+            ->where('payments.paid_at', '<', $rangeEnd)
+            ->where('payments.status', 'PAID')
+            ->selectRaw("COALESCE(menu_categories.name, 'Tanpa Kategori') as category_name")
+            ->selectRaw('COUNT(DISTINCT payments.bill_id) as bills_count')
+            ->selectRaw('SUM(bill_items.qty) as total_qty')
+            ->selectRaw('SUM(bill_items.line_total) as gross_total')
+            ->groupBy(DB::raw("COALESCE(menu_categories.name, 'Tanpa Kategori')"))
+            ->orderBy('gross_total', 'desc')
+            ->limit(10)
+            ->get()
+            ->map(fn ($row) => [
+                'category_name' => $row->category_name,
+                'bills_count' => (int) $row->bills_count,
+                'total_qty' => (int) $row->total_qty,
+                'gross_total' => number_format((float) $row->gross_total, 2, '.', ''),
+            ])
+            ->values();
+
         $dailyTrend = DB::table('payments')
             ->where('paid_at', '>=', $rangeStart)
             ->where('paid_at', '<', $rangeEnd)
@@ -260,10 +301,26 @@ class ReportController extends Controller
             ->values();
 
         $netSales = (float) $grossSales - (float) $refundTotal;
+        $previousGrossSales = (float) (clone $previousPaymentsBase)
+            ->where('status', 'PAID')
+            ->sum('amount');
+        $previousRefundTotal = (float) (clone $previousPaymentsBase)
+            ->where('status', 'REFUND')
+            ->sum('amount');
+        $previousNetSales = $previousGrossSales - $previousRefundTotal;
+        $previousPaidBillsCount = (clone $previousPaymentsBase)
+            ->where('status', 'PAID')
+            ->distinct('bill_id')
+            ->count('bill_id');
         $purchaseTotal = (float) DB::table('ingredient_stock_movements')
             ->whereIn('movement_type', ['INITIAL', 'ADJUST_IN'])
             ->where('created_at', '>=', $rangeStart)
             ->where('created_at', '<', $rangeEnd)
+            ->sum('total_cost');
+        $previousPurchaseTotal = (float) DB::table('ingredient_stock_movements')
+            ->whereIn('movement_type', ['INITIAL', 'ADJUST_IN'])
+            ->where('created_at', '>=', $previousRangeStart)
+            ->where('created_at', '<', $previousRangeEnd)
             ->sum('total_cost');
 
         $estimatedCogs = (float) DB::table('bill_items')
@@ -275,11 +332,30 @@ class ReportController extends Controller
             ->where('payments.paid_at', '<', $rangeEnd)
             ->where('payments.status', 'PAID')
             ->sum(DB::raw('bill_items.qty * COALESCE(menus.stock_deduction_qty, 0) * COALESCE(NULLIF(ingredients.last_purchase_price, 0), ingredients.purchase_price, 0)'));
+        $previousEstimatedCogs = (float) DB::table('bill_items')
+            ->join('bills', 'bills.id', '=', 'bill_items.bill_id')
+            ->join('payments', 'payments.bill_id', '=', 'bills.id')
+            ->join('menus', 'menus.id', '=', 'bill_items.menu_id')
+            ->leftJoin('ingredients', 'ingredients.id', '=', 'menus.stock_item_id')
+            ->where('payments.paid_at', '>=', $previousRangeStart)
+            ->where('payments.paid_at', '<', $previousRangeEnd)
+            ->where('payments.status', 'PAID')
+            ->sum(DB::raw('bill_items.qty * COALESCE(menus.stock_deduction_qty, 0) * COALESCE(NULLIF(ingredients.last_purchase_price, 0), ingredients.purchase_price, 0)'));
+
+        $previousAverageBill = $previousPaidBillsCount > 0
+            ? $previousNetSales / $previousPaidBillsCount
+            : 0.0;
+        $currentAverageBill = $paidBillsCount > 0
+            ? $netSales / $paidBillsCount
+            : 0.0;
+        $previousEstimatedProfit = $previousNetSales - $previousEstimatedCogs;
+        $currentEstimatedProfit = $netSales - $estimatedCogs;
 
         return [
             'filters' => [
                 'date_from' => $dateFrom,
                 'date_to' => $dateTo,
+                'period_days' => $periodDays,
             ],
             'summary' => [
                 'gross_sales' => number_format((float) $grossSales, 2, '.', ''),
@@ -288,14 +364,34 @@ class ReportController extends Controller
                 'net_sales' => number_format($netSales, 2, '.', ''),
                 'purchase_total' => number_format($purchaseTotal, 2, '.', ''),
                 'estimated_cogs' => number_format($estimatedCogs, 2, '.', ''),
-                'estimated_profit' => number_format($netSales - $estimatedCogs, 2, '.', ''),
+                'estimated_profit' => number_format($currentEstimatedProfit, 2, '.', ''),
                 'paid_bills_count' => $paidBillsCount,
                 'refunded_bills_count' => $refundedBillsCount,
-                'average_bill' => number_format($paidBillsCount > 0 ? $netSales / $paidBillsCount : 0, 2, '.', ''),
+                'average_bill' => number_format($currentAverageBill, 2, '.', ''),
+            ],
+            'comparison' => [
+                'previous_period' => [
+                    'date_from' => $previousRangeStart->toDateString(),
+                    'date_to' => $previousRangeEnd->copy()->subDay()->toDateString(),
+                    'gross_sales' => number_format($previousGrossSales, 2, '.', ''),
+                    'refund_total' => number_format($previousRefundTotal, 2, '.', ''),
+                    'net_sales' => number_format($previousNetSales, 2, '.', ''),
+                    'purchase_total' => number_format($previousPurchaseTotal, 2, '.', ''),
+                    'estimated_cogs' => number_format($previousEstimatedCogs, 2, '.', ''),
+                    'estimated_profit' => number_format($previousEstimatedProfit, 2, '.', ''),
+                    'paid_bills_count' => $previousPaidBillsCount,
+                    'average_bill' => number_format($previousAverageBill, 2, '.', ''),
+                ],
+                'net_sales' => $this->buildMetricComparison($netSales, $previousNetSales),
+                'paid_bills_count' => $this->buildMetricComparison((float) $paidBillsCount, (float) $previousPaidBillsCount, 0),
+                'average_bill' => $this->buildMetricComparison($currentAverageBill, $previousAverageBill),
+                'estimated_profit' => $this->buildMetricComparison($currentEstimatedProfit, $previousEstimatedProfit),
+                'refund_total' => $this->buildMetricComparison($refundTotal, $previousRefundTotal),
             ],
             'payment_methods' => $paymentMethods,
             'bill_types' => $billTypes,
             'top_items' => $topItems,
+            'category_sales' => $categorySales,
             'daily_trend' => $dailyTrend,
             'top_tables' => $topTables,
         ];
@@ -309,6 +405,23 @@ class ReportController extends Controller
 
         foreach ($payload['summary'] as $key => $value) {
             $rows[] = ['Ringkasan', (string) $key, (string) $value];
+        }
+
+        foreach ($payload['comparison']['previous_period'] as $key => $value) {
+            $rows[] = ['Periode Sebelumnya', (string) $key, (string) $value];
+        }
+
+        foreach (['net_sales', 'paid_bills_count', 'average_bill', 'estimated_profit', 'refund_total'] as $metricKey) {
+            $metric = $payload['comparison'][$metricKey] ?? [];
+            $rows[] = [
+                'Perbandingan',
+                $metricKey,
+                (string) ($metric['current'] ?? '0'),
+                (string) ($metric['previous'] ?? '0'),
+                (string) ($metric['delta'] ?? '0'),
+                (string) ($metric['delta_percent'] ?? '0'),
+                (string) ($metric['direction'] ?? 'flat'),
+            ];
         }
 
         foreach ($payload['payment_methods'] as $row) {
@@ -342,6 +455,16 @@ class ReportController extends Controller
             ];
         }
 
+        foreach ($payload['category_sales'] as $row) {
+            $rows[] = [
+                'Kategori Penjualan',
+                (string) $row['category_name'],
+                (string) $row['bills_count'],
+                (string) $row['total_qty'],
+                (string) $row['gross_total'],
+            ];
+        }
+
         foreach ($payload['daily_trend'] as $row) {
             $rows[] = [
                 'Tren Harian',
@@ -364,6 +487,22 @@ class ReportController extends Controller
         }
 
         return $rows;
+    }
+
+    private function buildMetricComparison(float $current, float $previous, int $decimals = 2): array
+    {
+        $delta = $current - $previous;
+        $deltaPercent = $previous == 0.0
+            ? ($current == 0.0 ? 0.0 : 100.0)
+            : (($delta / $previous) * 100);
+
+        return [
+            'current' => number_format($current, $decimals, '.', ''),
+            'previous' => number_format($previous, $decimals, '.', ''),
+            'delta' => number_format($delta, $decimals, '.', ''),
+            'delta_percent' => number_format($deltaPercent, 2, '.', ''),
+            'direction' => $delta > 0 ? 'up' : ($delta < 0 ? 'down' : 'flat'),
+        ];
     }
 
     private function buildSalesSummaryXlsx(array $payload, string $targetPath): void
