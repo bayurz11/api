@@ -790,6 +790,77 @@
             border: 1px solid var(--line);
         }
 
+        .success-timeline {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .timeline-step {
+            position: relative;
+            min-height: 124px;
+            padding: 16px;
+            border-radius: 20px;
+            border: 1px solid #E9E9DB;
+            background: #FAFAF4;
+            transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+        }
+
+        .timeline-step.current {
+            border-color: var(--line);
+            background: #FFFDF5;
+            box-shadow: 0 10px 22px rgba(0, 75, 54, 0.08);
+        }
+
+        .timeline-step.done {
+            border-color: #CDE7D4;
+            background: #F6FCF7;
+        }
+
+        .timeline-step.rejected {
+            border-color: #F5CEC7;
+            background: #FFF7F4;
+        }
+
+        .timeline-step-badge {
+            width: 36px;
+            height: 36px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 900;
+            background: #E9E9DB;
+            color: var(--muted);
+        }
+
+        .timeline-step.done .timeline-step-badge,
+        .timeline-step.current .timeline-step-badge {
+            background: var(--green);
+            color: var(--white);
+        }
+
+        .timeline-step.rejected .timeline-step-badge {
+            background: var(--danger);
+            color: var(--white);
+        }
+
+        .timeline-step-title {
+            margin-top: 12px;
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--deep);
+        }
+
+        .timeline-step-desc {
+            margin-top: 8px;
+            font-size: 13px;
+            line-height: 1.45;
+            color: var(--muted);
+        }
+
         .success-next-steps strong {
             display: block;
             margin-bottom: 8px;
@@ -920,6 +991,10 @@
                 grid-template-columns: 1fr;
             }
 
+            .success-timeline {
+                grid-template-columns: 1fr;
+            }
+
             .menu-cover {
                 height: 164px;
             }
@@ -1020,6 +1095,8 @@
                         <div id="successStatusPill" class="success-status-pill pending">Menunggu konfirmasi restoran</div>
                     </div>
 
+                    <div id="successTimeline" class="success-timeline"></div>
+
                     <div class="success-meta">
                         <div class="success-meta-item">
                             <strong>Nomor pesanan</strong>
@@ -1044,6 +1121,14 @@
                         <div class="success-meta-item">
                             <strong>Waktu kirim</strong>
                             <span id="successSubmittedAt">-</span>
+                        </div>
+                        <div class="success-meta-item">
+                            <strong>Bill</strong>
+                            <span id="successBillNo">-</span>
+                        </div>
+                        <div class="success-meta-item">
+                            <strong>Status proses</strong>
+                            <span id="successProcessLabel">Menunggu konfirmasi</span>
                         </div>
                     </div>
 
@@ -1136,6 +1221,7 @@
     <script>
         const tableCode = @json($tableCode);
         const apiBase = `${window.location.origin}/api/v1`;
+        const guestTokenStorageKey = `warung-babeh-qr-order:${tableCode}`;
         const state = {
             table: null,
             categories: [],
@@ -1144,6 +1230,7 @@
             selected: new Map(),
             activeOptionByMenu: {},
             lastGuestToken: null,
+            statusTimer: null,
         };
 
         const menuContainer = document.getElementById('menuContainer');
@@ -1171,6 +1258,9 @@
         const successItemsCount = document.getElementById('successItemsCount');
         const successGrandTotal = document.getElementById('successGrandTotal');
         const successSubmittedAt = document.getElementById('successSubmittedAt');
+        const successBillNo = document.getElementById('successBillNo');
+        const successProcessLabel = document.getElementById('successProcessLabel');
+        const successTimeline = document.getElementById('successTimeline');
         const successItems = document.getElementById('successItems');
         const successNextSteps = document.getElementById('successNextSteps');
         const refreshStatusButton = document.getElementById('refreshStatusButton');
@@ -1178,6 +1268,29 @@
 
         function currency(value) {
             return new Intl.NumberFormat('id-ID').format(Number(value || 0));
+        }
+
+        function clearStatusTimer() {
+            if (state.statusTimer) {
+                window.clearInterval(state.statusTimer);
+                state.statusTimer = null;
+            }
+        }
+
+        function persistGuestToken(token) {
+            if (!token) {
+                sessionStorage.removeItem(guestTokenStorageKey);
+                return;
+            }
+
+            sessionStorage.setItem(guestTokenStorageKey, token);
+        }
+
+        function restoreGuestToken() {
+            const saved = sessionStorage.getItem(guestTokenStorageKey);
+            if (saved && saved.trim() !== '') {
+                state.lastGuestToken = saved.trim();
+            }
         }
 
         function formatDateTime(value) {
@@ -1226,6 +1339,129 @@
                         className: 'pending',
                     };
             }
+        }
+
+        function resolvePublicProgress(order) {
+            const qrStatus = (order.status || '').toUpperCase();
+            const orderStatus = (order.approved_order?.status || order.approvedOrder?.status || '').toUpperCase();
+            const billStatus = (order.bill?.status || '').toUpperCase();
+
+            if (qrStatus === 'REJECTED') {
+                return {
+                    processLabel: 'Pesanan perlu diperiksa ulang',
+                    steps: [
+                        { title: 'Pesanan masuk', description: 'Pesanan berhasil tercatat dari QR meja.', state: 'done' },
+                        { title: 'Konfirmasi restoran', description: 'Pesanan belum bisa diteruskan dan perlu diperiksa ulang.', state: 'rejected' },
+                        { title: 'Diproses', description: 'Tahap proses belum dimulai.', state: 'upcoming' },
+                        { title: 'Selesai', description: 'Pesanan belum selesai.', state: 'upcoming' },
+                    ],
+                    final: true,
+                };
+            }
+
+            if (qrStatus === 'PENDING') {
+                return {
+                    processLabel: 'Menunggu konfirmasi restoran',
+                    steps: [
+                        { title: 'Pesanan masuk', description: 'Pesanan berhasil dikirim dari meja Anda.', state: 'done' },
+                        { title: 'Konfirmasi restoran', description: 'Tim restoran sedang memeriksa pesanan ini.', state: 'current' },
+                        { title: 'Diproses', description: 'Pesanan akan mulai disiapkan setelah disetujui.', state: 'upcoming' },
+                        { title: 'Selesai', description: 'Pesanan akan ditandai selesai setelah disajikan.', state: 'upcoming' },
+                    ],
+                    final: false,
+                };
+            }
+
+            if (billStatus === 'PAID') {
+                return {
+                    processLabel: 'Pesanan selesai dan pembayaran tuntas',
+                    steps: [
+                        { title: 'Pesanan masuk', description: 'Pesanan tercatat dari QR meja.', state: 'done' },
+                        { title: 'Konfirmasi restoran', description: 'Pesanan telah diterima restoran.', state: 'done' },
+                        { title: 'Diproses', description: 'Pesanan sudah disiapkan dan diteruskan.', state: 'done' },
+                        { title: 'Selesai', description: 'Pesanan selesai dan tagihan sudah dibayar.', state: 'done' },
+                    ],
+                    final: true,
+                };
+            }
+
+            if (orderStatus === 'SERVED' || billStatus === 'SERVED') {
+                return {
+                    processLabel: 'Pesanan sudah diantar',
+                    steps: [
+                        { title: 'Pesanan masuk', description: 'Pesanan tercatat dari QR meja.', state: 'done' },
+                        { title: 'Konfirmasi restoran', description: 'Pesanan telah diterima restoran.', state: 'done' },
+                        { title: 'Diproses', description: 'Pesanan sudah disiapkan oleh tim restoran.', state: 'done' },
+                        { title: 'Selesai', description: 'Pesanan sudah diantar ke meja Anda.', state: 'current' },
+                    ],
+                    final: false,
+                };
+            }
+
+            if (orderStatus === 'READY' || billStatus === 'READY_TO_PAY') {
+                return {
+                    processLabel: 'Pesanan siap diantar',
+                    steps: [
+                        { title: 'Pesanan masuk', description: 'Pesanan tercatat dari QR meja.', state: 'done' },
+                        { title: 'Konfirmasi restoran', description: 'Pesanan telah diterima restoran.', state: 'done' },
+                        { title: 'Diproses', description: 'Pesanan sudah siap diteruskan ke meja Anda.', state: 'done' },
+                        { title: 'Selesai', description: 'Menunggu penyerahan ke meja atau penyelesaian layanan.', state: 'current' },
+                    ],
+                    final: false,
+                };
+            }
+
+            if (['ACCEPTED', 'COOKING', 'PREPARING', 'WAITING'].includes(orderStatus) || qrStatus === 'APPROVED') {
+                return {
+                    processLabel: 'Pesanan sedang diproses',
+                    steps: [
+                        { title: 'Pesanan masuk', description: 'Pesanan berhasil tercatat dari meja Anda.', state: 'done' },
+                        { title: 'Konfirmasi restoran', description: 'Pesanan sudah diterima dan masuk ke tagihan meja.', state: 'done' },
+                        { title: 'Diproses', description: 'Tim restoran sedang menyiapkan pesanan Anda.', state: 'current' },
+                        { title: 'Selesai', description: 'Status ini akan berubah setelah pesanan disajikan.', state: 'upcoming' },
+                    ],
+                    final: false,
+                };
+            }
+
+            return {
+                processLabel: 'Status pesanan sedang diperbarui',
+                steps: [
+                    { title: 'Pesanan masuk', description: 'Pesanan berhasil tercatat dari meja Anda.', state: 'done' },
+                    { title: 'Konfirmasi restoran', description: 'Status konfirmasi sedang diperbarui.', state: 'current' },
+                    { title: 'Diproses', description: 'Proses akan tampil setelah data restoran diperbarui.', state: 'upcoming' },
+                    { title: 'Selesai', description: 'Tahap akhir akan muncul setelah pesanan diantar.', state: 'upcoming' },
+                ],
+                final: false,
+            };
+        }
+
+        function renderTimeline(order) {
+            const progress = resolvePublicProgress(order);
+            successProcessLabel.textContent = progress.processLabel;
+            successTimeline.innerHTML = '';
+
+            progress.steps.forEach((step, index) => {
+                const card = document.createElement('div');
+                card.className = `timeline-step ${step.state === 'upcoming' ? '' : step.state}`.trim();
+
+                const badge = document.createElement('div');
+                badge.className = 'timeline-step-badge';
+                badge.textContent = step.state === 'done' ? '✓' : String(index + 1);
+
+                const title = document.createElement('div');
+                title.className = 'timeline-step-title';
+                title.textContent = step.title;
+
+                const desc = document.createElement('div');
+                desc.className = 'timeline-step-desc';
+                desc.textContent = step.description;
+
+                card.append(badge, title, desc);
+                successTimeline.appendChild(card);
+            });
+
+            return progress.final;
         }
 
         function totalItems(items) {
@@ -1307,6 +1543,7 @@
         }
 
         function showOrderingFlow() {
+            clearStatusTimer();
             successScreen.classList.remove('show');
             orderingFlow.classList.remove('hidden');
             refreshCart();
@@ -1331,13 +1568,24 @@
             successItemsCount.textContent = `${totalItems(items)} item`;
             successGrandTotal.textContent = `Rp ${currency(order.grand_total || 0)}`;
             successSubmittedAt.textContent = formatDateTime(order.submitted_at || new Date().toISOString());
+            successBillNo.textContent = order.bill && order.bill.bill_no ? order.bill.bill_no : '-';
             renderSuccessItems(items);
             renderNextSteps(order);
+            const isFinalProgress = renderTimeline(order);
 
             state.lastGuestToken = order.guest_token || state.lastGuestToken || null;
+            persistGuestToken(state.lastGuestToken);
             orderingFlow.classList.add('hidden');
             cartBar.classList.add('hidden');
             successScreen.classList.add('show');
+
+            clearStatusTimer();
+            if (!isFinalProgress) {
+                state.statusTimer = window.setInterval(() => {
+                    refreshGuestOrderStatus(false);
+                }, 15000);
+            }
+
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
@@ -1878,7 +2126,21 @@
         checkoutButton.addEventListener('click', submitOrder);
         refreshStatusButton.addEventListener('click', () => refreshGuestOrderStatus(true));
         backToMenuButton.addEventListener('click', showOrderingFlow);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                clearStatusTimer();
+                return;
+            }
+
+            if (successScreen.classList.contains('show') && state.lastGuestToken) {
+                refreshGuestOrderStatus(false);
+            }
+        });
+        restoreGuestToken();
         loadMenu();
+        if (state.lastGuestToken) {
+            refreshGuestOrderStatus(false);
+        }
     </script>
 </body>
 </html>
