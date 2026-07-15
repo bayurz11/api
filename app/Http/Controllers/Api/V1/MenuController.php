@@ -10,9 +10,11 @@ use App\Support\AuditLogger;
 use App\Support\InventoryManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Throwable;
 
 class MenuController extends Controller
 {
@@ -72,26 +74,30 @@ class MenuController extends Controller
 
         $category = $this->resolveValidCategory($validated['category_id'], $validated['station_type']);
 
-        $menu = DB::transaction(function () use ($validated, $category) {
-            $menu = Menu::query()->create([
-                'category_id' => $validated['category_id'],
-                'stock_item_id' => $validated['stock_item_id'] ?? null,
-                'stock_deduction_qty' => $validated['stock_deduction_qty'] ?? 1,
-                'sku' => $this->generateSkuForCategory($category),
-                'name' => $validated['name'],
-                'description' => $validated['description'] ?? null,
-                'image_url' => $validated['image_url'] ?? null,
-                'price' => $validated['price'],
-                'station_type' => $validated['station_type'],
-                'is_available' => $validated['is_available'] ?? true,
-                'is_stock_available' => true,
-                'is_active' => $validated['is_active'] ?? true,
-            ]);
+        try {
+            $menu = DB::transaction(function () use ($validated, $category) {
+                $menu = Menu::query()->create([
+                    'category_id' => $validated['category_id'],
+                    'stock_item_id' => $validated['stock_item_id'] ?? null,
+                    'stock_deduction_qty' => $validated['stock_deduction_qty'] ?? 1,
+                    'sku' => $this->generateSkuForCategory($category),
+                    'name' => $validated['name'],
+                    'description' => $validated['description'] ?? null,
+                    'image_url' => $validated['image_url'] ?? null,
+                    'price' => $validated['price'],
+                    'station_type' => $validated['station_type'],
+                    'is_available' => $validated['is_available'] ?? true,
+                    'is_stock_available' => true,
+                    'is_active' => $validated['is_active'] ?? true,
+                ]);
 
-            $this->syncMenuOptions($menu, $validated['options'] ?? []);
+                $this->syncMenuOptions($menu, $validated['options'] ?? []);
 
-            return $menu;
-        });
+                return $menu;
+            });
+        } catch (Throwable $exception) {
+            return $this->handleWriteFailure($exception, $request, null, $validated);
+        }
 
         InventoryManager::syncMenuStockAvailability($menu);
 
@@ -143,19 +149,24 @@ class MenuController extends Controller
 
         $before = $menu->only(['category_id', 'stock_item_id', 'stock_deduction_qty', 'sku', 'name', 'description', 'image_url', 'price', 'station_type', 'is_available', 'is_active']);
 
-        DB::transaction(function () use ($menu, $validated, $resolvedCategoryId) {
-            $menu->fill($validated);
+        try {
+            DB::transaction(function () use ($menu, $validated, $resolvedCategoryId) {
+                $menu->fill($validated);
 
-            if (array_key_exists('category_id', $validated) && $resolvedCategoryId !== $menu->getOriginal('category_id')) {
-                $category = MenuCategory::query()->findOrFail($resolvedCategoryId);
-                $menu->sku = $this->generateSkuForCategory($category, $menu->id);
-            }
+                if (array_key_exists('category_id', $validated) && $resolvedCategoryId !== $menu->getOriginal('category_id')) {
+                    $category = MenuCategory::query()->findOrFail($resolvedCategoryId);
+                    $menu->sku = $this->generateSkuForCategory($category, $menu->id);
+                }
 
-            $menu->save();
-            if (array_key_exists('options', $validated)) {
-                $this->syncMenuOptions($menu, $validated['options'] ?? []);
-            }
-        });
+                $menu->save();
+                if (array_key_exists('options', $validated)) {
+                    $this->syncMenuOptions($menu, $validated['options'] ?? []);
+                }
+            });
+        } catch (Throwable $exception) {
+            return $this->handleWriteFailure($exception, $request, $menu->id, $validated);
+        }
+
         InventoryManager::syncMenuStockAvailability($menu);
 
         AuditLogger::log(
@@ -283,5 +294,32 @@ class MenuController extends Controller
         if ($deleteIds !== []) {
             MenuOption::query()->whereIn('id', $deleteIds)->delete();
         }
+    }
+
+    private function handleWriteFailure(Throwable $exception, Request $request, ?int $menuId, array $payload): JsonResponse
+    {
+        Log::error('menu.write_failed', [
+            'menu_id' => $menuId,
+            'user_id' => $request->user()?->id,
+            'path' => $request->path(),
+            'message' => $exception->getMessage(),
+            'payload' => $payload,
+        ]);
+
+        $message = 'Terjadi kesalahan pada server.';
+        $loweredMessage = Str::lower($exception->getMessage());
+
+        if (
+            str_contains($loweredMessage, 'menu_options')
+            || str_contains($loweredMessage, 'menu_option_id')
+            || str_contains($loweredMessage, 'base table or view not found')
+            || str_contains($loweredMessage, 'unknown column')
+        ) {
+            $message = 'Struktur database di server belum diperbarui. Jalankan migrasi deploy terbaru.';
+        }
+
+        return response()->json([
+            'message' => $message,
+        ], 500);
     }
 }
