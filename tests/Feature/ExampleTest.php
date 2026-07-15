@@ -1896,7 +1896,9 @@ class ExampleTest extends TestCase
             ->assertJsonPath('daily_trend.0.net_total', '28000.00')
             ->assertJsonPath('daily_trend.1.date', now()->toDateString())
             ->assertJsonPath('daily_trend.1.net_total', '26000.00')
-            ->assertJsonPath('top_tables.0.table_code', 'T01');
+            ->assertJsonPath('top_tables.0.table_code', 'T01')
+            ->assertJsonPath('hourly_trend.0.paid_bills_count', 2)
+            ->assertJsonPath('top_customers.0.customer_name', 'Pelanggan umum');
 
         $exportResponse = $this->actingAs($owner, 'sanctum')
             ->get('/api/v1/reports/sales-summary/export?date_from=' . now()->subDay()->toDateString() . '&date_to=' . now()->toDateString());
@@ -1912,6 +1914,8 @@ class ExampleTest extends TestCase
         $this->assertStringContainsString('summary,gross_sales,64000.00', $exportContent);
         $this->assertStringContainsString('category_sales,Makanan', $exportContent);
         $this->assertStringContainsString('daily_trend,' . now()->toDateString(), $exportContent);
+        $this->assertStringContainsString('hourly_trend,', $exportContent);
+        $this->assertStringContainsString('top_customers,"Pelanggan umum"', $exportContent);
 
         $excelResponse = $this->actingAs($owner, 'sanctum')
             ->get('/api/v1/reports/sales-summary/export-excel?date_from=' . now()->subDay()->toDateString() . '&date_to=' . now()->toDateString());

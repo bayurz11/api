@@ -99,6 +99,25 @@ class ReportController extends Controller
                 ]);
             }
 
+            foreach ($payload['hourly_trend'] as $row) {
+                fputcsv($handle, [
+                    'hourly_trend',
+                    $row['hour_label'],
+                    $row['gross_total'],
+                    $row['paid_bills_count'],
+                ]);
+            }
+
+            foreach ($payload['top_customers'] as $row) {
+                fputcsv($handle, [
+                    'top_customers',
+                    $row['customer_name'],
+                    $row['bills_count'],
+                    $row['gross_total'],
+                    $row['average_bill'],
+                ]);
+            }
+
             fclose($handle);
         }, $fileName, [
             'Content-Type' => 'text/csv; charset=UTF-8',
@@ -300,6 +319,52 @@ class ReportController extends Controller
             ])
             ->values();
 
+        $hourlyExpression = $this->hourExpression();
+        $hourlyTrend = DB::table('payments')
+            ->where('paid_at', '>=', $rangeStart)
+            ->where('paid_at', '<', $rangeEnd)
+            ->where('status', 'PAID')
+            ->selectRaw("{$hourlyExpression} as report_hour")
+            ->selectRaw('SUM(amount) as gross_total')
+            ->selectRaw('COUNT(DISTINCT bill_id) as paid_bills_count')
+            ->groupBy(DB::raw($hourlyExpression))
+            ->orderByDesc('gross_total')
+            ->limit(6)
+            ->get()
+            ->map(fn ($row) => [
+                'hour' => (int) $row->report_hour,
+                'hour_label' => sprintf('%02d:00 - %02d:59', (int) $row->report_hour, (int) $row->report_hour),
+                'gross_total' => number_format((float) $row->gross_total, 2, '.', ''),
+                'paid_bills_count' => (int) $row->paid_bills_count,
+            ])
+            ->values();
+
+        $topCustomers = DB::table('payments')
+            ->join('bills', 'bills.id', '=', 'payments.bill_id')
+            ->leftJoin('customers', 'customers.id', '=', 'bills.customer_id')
+            ->where('payments.paid_at', '>=', $rangeStart)
+            ->where('payments.paid_at', '<', $rangeEnd)
+            ->where('payments.status', 'PAID')
+            ->selectRaw("COALESCE(customers.name, bills.customer_name, 'Pelanggan umum') as customer_name")
+            ->selectRaw('SUM(payments.amount) as gross_total')
+            ->selectRaw('COUNT(DISTINCT payments.bill_id) as bills_count')
+            ->groupBy(DB::raw("COALESCE(customers.name, bills.customer_name, 'Pelanggan umum')"))
+            ->orderByDesc('gross_total')
+            ->limit(6)
+            ->get()
+            ->map(function ($row) {
+                $grossTotal = (float) $row->gross_total;
+                $billsCount = (int) $row->bills_count;
+
+                return [
+                    'customer_name' => $row->customer_name,
+                    'gross_total' => number_format($grossTotal, 2, '.', ''),
+                    'bills_count' => $billsCount,
+                    'average_bill' => number_format($billsCount > 0 ? $grossTotal / $billsCount : 0, 2, '.', ''),
+                ];
+            })
+            ->values();
+
         $netSales = (float) $grossSales - (float) $refundTotal;
         $previousGrossSales = (float) (clone $previousPaymentsBase)
             ->where('status', 'PAID')
@@ -394,6 +459,8 @@ class ReportController extends Controller
             'category_sales' => $categorySales,
             'daily_trend' => $dailyTrend,
             'top_tables' => $topTables,
+            'hourly_trend' => $hourlyTrend,
+            'top_customers' => $topCustomers,
         ];
     }
 
@@ -486,7 +553,33 @@ class ReportController extends Controller
             ];
         }
 
+        foreach ($payload['hourly_trend'] as $row) {
+            $rows[] = [
+                'Jam Ramai',
+                (string) $row['hour_label'],
+                (string) $row['gross_total'],
+                (string) $row['paid_bills_count'],
+            ];
+        }
+
+        foreach ($payload['top_customers'] as $row) {
+            $rows[] = [
+                'Pelanggan Utama',
+                (string) $row['customer_name'],
+                (string) $row['bills_count'],
+                (string) $row['gross_total'],
+                (string) $row['average_bill'],
+            ];
+        }
+
         return $rows;
+    }
+
+    private function hourExpression(): string
+    {
+        return DB::getDriverName() === 'sqlite'
+            ? "CAST(strftime('%H', paid_at) AS INTEGER)"
+            : 'HOUR(paid_at)';
     }
 
     private function buildMetricComparison(float $current, float $previous, int $decimals = 2): array
