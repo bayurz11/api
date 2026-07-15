@@ -72,6 +72,7 @@ class MenuController extends Controller
             'options.*.sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
 
+        $validated = $this->normalizeMenuPayload($validated);
         $category = $this->resolveValidCategory($validated['category_id'], $validated['station_type']);
 
         try {
@@ -142,6 +143,7 @@ class MenuController extends Controller
             'options.*.sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
 
+        $validated = $this->normalizeMenuPayload($validated, $menu);
         $resolvedCategoryId = $validated['category_id'] ?? $menu->category_id;
         $resolvedStationType = $validated['station_type'] ?? $menu->station_type;
 
@@ -294,6 +296,23 @@ class MenuController extends Controller
         if ($deleteIds !== []) {
             MenuOption::query()->whereIn('id', $deleteIds)->delete();
         }
+    }
+
+    private function normalizeMenuPayload(array $validated, ?Menu $menu = null): array
+    {
+        $stockItemId = $validated['stock_item_id'] ?? $menu?->stock_item_id;
+        $stockDeductionQty = $validated['stock_deduction_qty'] ?? $menu?->stock_deduction_qty ?? 1;
+
+        if ($stockItemId === null) {
+            $validated['stock_item_id'] = null;
+            $validated['stock_deduction_qty'] = 1;
+
+            return $validated;
+        }
+
+        $validated['stock_deduction_qty'] = $stockDeductionQty ?: 1;
+
+        return $validated;
     }
 
     private function handleWriteFailure(Throwable $exception, Request $request, ?int $menuId, array $payload): JsonResponse
