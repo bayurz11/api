@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Menu extends Model
 {
@@ -52,5 +53,10 @@ class Menu extends Model
         return $this->belongsToMany(Ingredient::class, 'menu_ingredients')
             ->withPivot('qty_per_portion')
             ->withTimestamps();
+    }
+
+    public function options(): HasMany
+    {
+        return $this->hasMany(MenuOption::class)->orderBy('sort_order')->orderBy('id');
     }
 }

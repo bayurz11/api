@@ -68,6 +68,7 @@ class BillController extends Controller
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'customer_name' => ['nullable', 'string', 'max:255'],
             'guest_count' => ['nullable', 'integer', 'min:1'],
+            'event_scheduled_at' => ['nullable', 'date'],
         ]);
 
         $this->validateBillCreationRules($validated);
@@ -97,6 +98,7 @@ class BillController extends Controller
                 'guest_count' => $validated['guest_count'] ?? 1,
                 'status' => 'OPEN',
                 'opened_at' => now(),
+                'event_scheduled_at' => $validated['event_scheduled_at'] ?? null,
             ]);
 
             if ($linkedTableIds !== []) {
@@ -171,6 +173,7 @@ class BillController extends Controller
             'discount_total' => ['nullable', 'numeric', 'min:0'],
             'tax_total' => ['nullable', 'numeric', 'min:0'],
             'service_total' => ['nullable', 'numeric', 'min:0'],
+            'event_scheduled_at' => ['nullable', 'date'],
         ]);
 
         $user = $request->user();
@@ -183,6 +186,7 @@ class BillController extends Controller
             'service_total',
             'grand_total',
             'balance_due',
+            'event_scheduled_at',
         ]);
 
         $bill = DB::transaction(function () use ($bill, $validated) {
@@ -193,6 +197,9 @@ class BillController extends Controller
                 'discount_total' => $validated['discount_total'] ?? $bill->discount_total,
                 'tax_total' => $validated['tax_total'] ?? $bill->tax_total,
                 'service_total' => $validated['service_total'] ?? $bill->service_total,
+                'event_scheduled_at' => array_key_exists('event_scheduled_at', $validated)
+                    ? $validated['event_scheduled_at']
+                    : $bill->event_scheduled_at,
             ]);
             $bill->save();
 
@@ -215,6 +222,7 @@ class BillController extends Controller
                 'service_total',
                 'grand_total',
                 'balance_due',
+                'event_scheduled_at',
             ]),
         );
 
@@ -700,6 +708,14 @@ class BillController extends Controller
                 filled($tableId) || ! empty($extraTableIds),
                 422,
                 'Bill non-meja tidak boleh terhubung ke meja.',
+            );
+        }
+
+        if ($billType === 'CATERING') {
+            abort_if(
+                blank($validated['event_scheduled_at'] ?? null),
+                422,
+                'Tanggal dan jam acara wajib diisi untuk pesanan katering/event.',
             );
         }
 

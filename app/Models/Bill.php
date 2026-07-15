@@ -31,6 +31,7 @@ class Bill extends Model
         'paid_total',
         'balance_due',
         'opened_at',
+        'event_scheduled_at',
         'closed_at',
     ];
 
@@ -45,6 +46,7 @@ class Bill extends Model
             'paid_total' => 'decimal:2',
             'balance_due' => 'decimal:2',
             'opened_at' => 'datetime',
+            'event_scheduled_at' => 'datetime',
             'closed_at' => 'datetime',
         ];
     }

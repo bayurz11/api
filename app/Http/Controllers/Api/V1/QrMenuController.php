@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Bill;
 use App\Models\BillItem;
 use App\Models\Menu;
+use App\Models\MenuOption;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\QrOrder;
@@ -32,6 +33,14 @@ class QrMenuController extends Controller
             ->get()
             ->map(function ($category) {
                 $menus = Menu::query()
+                    ->with([
+                        'options' => fn ($query) => $query
+                            ->select('id', 'menu_id', 'name', 'price_delta', 'is_available', 'is_active', 'sort_order')
+                            ->where('is_active', true)
+                            ->where('is_available', true)
+                            ->orderBy('sort_order')
+                            ->orderBy('id'),
+                    ])
                     ->where('category_id', $category->id)
                     ->where('is_active', true)
                     ->where('is_available', true)
@@ -74,6 +83,7 @@ class QrMenuController extends Controller
             'notes' => ['nullable', 'string', 'max:1000'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.menu_id' => ['required', 'integer', 'exists:menus,id'],
+            'items.*.menu_option_id' => ['nullable', 'integer', 'exists:menu_options,id'],
             'items.*.qty' => ['required', 'integer', 'min:1'],
             'items.*.notes' => ['nullable', 'string', 'max:255'],
         ]);
@@ -81,7 +91,17 @@ class QrMenuController extends Controller
         $qrOrder = DB::transaction(function () use ($validated, $table) {
             $menus = Menu::query()
                 ->with('category:id,name,station_type')
+                ->with('options')
                 ->whereIn('id', collect($validated['items'])->pluck('menu_id'))
+                ->get()
+                ->keyBy('id');
+            $optionIds = collect($validated['items'])
+                ->pluck('menu_option_id')
+                ->filter()
+                ->map(fn ($value) => (int) $value)
+                ->values();
+            $options = MenuOption::query()
+                ->whereIn('id', $optionIds)
                 ->get()
                 ->keyBy('id');
 
@@ -102,17 +122,25 @@ class QrMenuController extends Controller
             foreach ($validated['items'] as $item) {
                 $menu = $menus[$item['menu_id']];
                 abort_if(! $menu->is_active || ! $menu->is_available || ! $menu->is_stock_available, 422, "Menu {$menu->name} sedang tidak tersedia.");
+                $menuOption = $this->resolveMenuOption(
+                    menu: $menu,
+                    options: $options,
+                    optionId: isset($item['menu_option_id']) ? (int) $item['menu_option_id'] : null,
+                );
 
-                $lineTotal = (float) $menu->price * (int) $item['qty'];
+                $unitPrice = (float) $menu->price + (float) ($menuOption?->price_delta ?? 0);
+                $menuName = $menuOption ? "{$menu->name} - {$menuOption->name}" : $menu->name;
+                $lineTotal = $unitPrice * (int) $item['qty'];
                 $subtotal += $lineTotal;
 
                 QrOrderItem::query()->create([
                     'qr_order_id' => $qrOrder->id,
                     'menu_id' => $menu->id,
-                    'menu_name' => $menu->name,
+                    'menu_option_id' => $menuOption?->id,
+                    'menu_name' => $menuName,
                     'station_type' => $menu->station_type,
                     'qty' => $item['qty'],
-                    'unit_price' => $menu->price,
+                    'unit_price' => $unitPrice,
                     'line_total' => $lineTotal,
                     'notes' => $item['notes'] ?? null,
                     'status' => 'PENDING',
@@ -227,12 +255,13 @@ class QrMenuController extends Controller
                     menu: $menu,
                     qty: (int) $qrItem->qty,
                     userId: $user->id,
-                    reason: "Order QR {$order->order_no} untuk {$menu->name}",
+                    reason: "Order QR {$order->order_no} untuk {$qrItem->menu_name}",
                 );
 
                 $billItem = BillItem::query()->create([
                     'bill_id' => $bill->id,
                     'menu_id' => $qrItem->menu_id,
+                    'menu_option_id' => $qrItem->menu_option_id,
                     'menu_name' => $qrItem->menu_name,
                     'qty' => $qrItem->qty,
                     'unit_price' => $qrItem->unit_price,
@@ -332,5 +361,23 @@ class QrMenuController extends Controller
         abort_if($table->status === 'OUT_OF_SERVICE', 422, 'Meja ini sedang tidak dapat digunakan.');
 
         return $table;
+    }
+
+    private function resolveMenuOption(Menu $menu, \Illuminate\Support\Collection $options, ?int $optionId): ?MenuOption
+    {
+        $configuredOptions = $menu->options->where('is_active', true)->values();
+
+        if ($configuredOptions->isEmpty()) {
+            return null;
+        }
+
+        abort_if($optionId === null, 422, "Pilih varian untuk menu {$menu->name}.");
+
+        /** @var MenuOption|null $option */
+        $option = $options->get($optionId);
+        abort_if($option === null || $option->menu_id !== $menu->id, 422, "Varian menu {$menu->name} tidak valid.");
+        abort_if(! $option->is_active || ! $option->is_available, 422, "Varian {$option->name} untuk menu {$menu->name} sedang tidak tersedia.");
+
+        return $option;
     }
 }

@@ -17,6 +17,7 @@ class KitchenController extends Controller
                 'order.bill:id,bill_no,table_id,status',
                 'order.bill.table:id,code,name',
                 'menu:id,name',
+                'billItem:id,menu_name',
             ])
             ->where('station_type', 'KITCHEN')
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))

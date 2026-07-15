@@ -20,8 +20,9 @@ class ReminderSettingsController extends Controller
     {
         $data = $request->validate([
             'reservation_reminders_enabled' => ['required', 'boolean'],
-            'reservation_reminder_minutes_before' => ['required', 'integer', 'min:15', 'max:1440'],
+            'reservation_reminder_minutes_before' => ['required', 'integer', 'min:15', 'max:10080'],
             'event_reminders_enabled' => ['required', 'boolean'],
+            'event_reminder_minutes_before' => ['required', 'integer', 'min:15', 'max:10080'],
             'dashboard_reminder_limit' => ['required', 'integer', 'min:1', 'max:10'],
         ]);
 
@@ -38,6 +39,11 @@ class ReminderSettingsController extends Controller
         Setting::setValue(
             'event_reminders_enabled',
             $data['event_reminders_enabled'] ? '1' : '0',
+            'reminders',
+        );
+        Setting::setValue(
+            'event_reminder_minutes_before',
+            (string) $data['event_reminder_minutes_before'],
             'reminders',
         );
         Setting::setValue(
@@ -66,6 +72,10 @@ class ReminderSettingsController extends Controller
             'event_reminders_enabled' => $this->boolSetting(
                 'event_reminders_enabled',
                 true,
+            ),
+            'event_reminder_minutes_before' => $this->intSetting(
+                'event_reminder_minutes_before',
+                1440,
             ),
             'dashboard_reminder_limit' => $this->intSetting(
                 'dashboard_reminder_limit',

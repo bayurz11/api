@@ -8,6 +8,7 @@ use App\Models\Customer;
 use App\Models\Ingredient;
 use App\Models\Menu;
 use App\Models\MenuCategory;
+use App\Models\MenuOption;
 use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Printer;
@@ -452,6 +453,7 @@ class ExampleTest extends TestCase
             'guest_count' => 20,
             'opened_by' => $owner->id,
             'opened_at' => now()->subMinutes(90),
+            'event_scheduled_at' => now()->addHours(8),
             'subtotal' => 0,
             'discount_amount' => 0,
             'tax_amount' => 0,
@@ -471,7 +473,7 @@ class ExampleTest extends TestCase
             ])
             ->assertJsonFragment([
                 'type' => 'event',
-                'priority' => 'active',
+                'priority' => 'upcoming',
             ]);
     }
 
@@ -791,6 +793,7 @@ class ExampleTest extends TestCase
             'bill_type' => 'CATERING',
             'customer_name' => 'Acara Kantor',
             'guest_count' => 15,
+            'event_scheduled_at' => now()->addDays(12)->setTime(10, 0)->toIso8601String(),
         ]);
 
         $cateringResponse
@@ -2135,6 +2138,174 @@ class ExampleTest extends TestCase
 
         $cashierChannels = collect($cashierResponse->json('data'))->pluck('channel')->all();
         $this->assertContains('cashier_bill', $cashierChannels);
+    }
+
+    public function test_catering_bill_requires_event_schedule_and_appears_in_dashboard_reminders(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson('/api/v1/bills', [
+                'bill_type' => 'CATERING',
+                'customer_name' => 'Event A',
+                'guest_count' => 50,
+            ])
+            ->assertStatus(422)
+            ->assertJsonFragment([
+                'message' => 'Tanggal dan jam acara wajib diisi untuk pesanan katering/event.',
+            ]);
+
+        Setting::setValue('event_reminders_enabled', '1', 'reminders');
+        Setting::setValue('event_reminder_minutes_before', '1440', 'reminders');
+
+        $scheduledAt = now()->addHours(20);
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson('/api/v1/bills', [
+                'bill_type' => 'CATERING',
+                'customer_name' => 'Event A',
+                'guest_count' => 50,
+                'event_scheduled_at' => $scheduledAt->toIso8601String(),
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.bill_type', 'CATERING');
+
+        $this->actingAs($owner, 'sanctum')
+            ->getJson('/api/v1/dashboard')
+            ->assertOk()
+            ->assertJsonPath('reminders.settings.event_reminder_minutes_before', 1440)
+            ->assertJsonPath('reminders.summary.event_due_count', 1)
+            ->assertJsonPath('reminders.items.0.type', 'event');
+    }
+
+    public function test_menu_options_can_be_managed_and_ordered(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $table = Table::query()->where('code', 'T01')->firstOrFail();
+        $menu = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+
+        $this->actingAs($owner, 'sanctum')
+            ->patchJson("/api/v1/menus/{$menu->id}", [
+                'category_id' => $menu->category_id,
+                'name' => $menu->name,
+                'price' => (float) $menu->price,
+                'station_type' => $menu->station_type,
+                'is_available' => true,
+                'is_active' => true,
+                'options' => [
+                    [
+                        'name' => 'Dada',
+                        'price_delta' => 2000,
+                        'is_available' => true,
+                        'is_active' => true,
+                        'sort_order' => 0,
+                    ],
+                    [
+                        'name' => 'Paha Atas',
+                        'price_delta' => 0,
+                        'is_available' => false,
+                        'is_active' => true,
+                        'sort_order' => 1,
+                    ],
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.options.0.name', 'Dada')
+            ->assertJsonPath('data.options.1.is_available', false);
+
+        $option = MenuOption::query()
+            ->where('menu_id', $menu->id)
+            ->where('name', 'Dada')
+            ->firstOrFail();
+
+        $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'DINE_IN',
+            'table_id' => $table->id,
+            'guest_count' => 2,
+        ])->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/bills/{$billId}/orders", [
+                'items' => [
+                    [
+                        'menu_id' => $menu->id,
+                        'menu_option_id' => $option->id,
+                        'qty' => 1,
+                    ],
+                ],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('message', 'Order berhasil dikirim.');
+
+        $this->assertDatabaseHas('bill_items', [
+            'bill_id' => $billId,
+            'menu_id' => $menu->id,
+            'menu_option_id' => $option->id,
+            'menu_name' => "{$menu->name} - Dada",
+        ]);
+    }
+
+    public function test_qr_menu_hides_unavailable_options_and_requires_valid_option(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $menu = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+
+        $this->actingAs($owner, 'sanctum')
+            ->patchJson("/api/v1/menus/{$menu->id}", [
+                'category_id' => $menu->category_id,
+                'name' => $menu->name,
+                'price' => (float) $menu->price,
+                'station_type' => $menu->station_type,
+                'is_available' => true,
+                'is_active' => true,
+                'options' => [
+                    [
+                        'name' => 'Dada',
+                        'price_delta' => 2000,
+                        'is_available' => true,
+                        'is_active' => true,
+                        'sort_order' => 0,
+                    ],
+                    [
+                        'name' => 'Paha Bawah',
+                        'price_delta' => 0,
+                        'is_available' => false,
+                        'is_active' => true,
+                        'sort_order' => 1,
+                    ],
+                ],
+            ])
+            ->assertOk();
+
+        $this->getJson('/api/v1/qr-menu/T01')
+            ->assertOk()
+            ->assertJsonFragment(['name' => 'Dada'])
+            ->assertJsonMissing(['name' => 'Paha Bawah']);
+
+        $unavailableOption = MenuOption::query()
+            ->where('menu_id', $menu->id)
+            ->where('name', 'Paha Bawah')
+            ->firstOrFail();
+
+        $this->postJson('/api/v1/qr-menu/T01/checkout', [
+            'customer_name' => 'Guest QR',
+            'guest_count' => 2,
+            'items' => [
+                [
+                    'menu_id' => $menu->id,
+                    'menu_option_id' => $unavailableOption->id,
+                    'qty' => 1,
+                ],
+            ],
+        ])
+            ->assertStatus(422);
     }
 
 }

@@ -329,6 +329,7 @@ class NotificationController extends Controller
         return OrderItem::query()
             ->with([
                 'menu:id,name',
+                'billItem:id,menu_name',
                 'order:id,order_no,bill_id,sent_at',
                 'order.bill:id,bill_no,table_id',
                 'order.bill.table:id,code,name',
@@ -343,13 +344,13 @@ class NotificationController extends Controller
                 'channel' => self::CHANNEL_KITCHEN,
                 'sort_at' => optional($item->order?->sent_at)->toIso8601String() ?? optional($item->created_at)->toIso8601String() ?? optional($item->updated_at)->toIso8601String(),
                 'title' => 'Pesanan baru masuk ke dapur',
-                'message' => trim(($item->menu?->name ?? 'Item dapur') . ' untuk ' . ($item->order?->bill?->table?->name ?? $item->order?->bill?->bill_no)),
+                'message' => trim(($item->billItem?->menu_name ?? $item->menu?->name ?? 'Item dapur') . ' untuk ' . ($item->order?->bill?->table?->name ?? $item->order?->bill?->bill_no)),
                 'entity_type' => 'order_item',
                 'entity_id' => $item->id,
                 'meta' => [
                     'order_item_id' => $item->id,
                     'station_type' => $item->station_type,
-                    'menu_name' => $item->menu?->name,
+                    'menu_name' => $item->billItem?->menu_name ?? $item->menu?->name,
                     'qty' => $item->qty,
                     'status' => $item->status,
                     'order_id' => $item->order?->id,
@@ -368,6 +369,7 @@ class NotificationController extends Controller
         return OrderItem::query()
             ->with([
                 'menu:id,name',
+                'billItem:id,menu_name',
                 'order:id,order_no,bill_id,sent_at',
                 'order.bill:id,bill_no,table_id',
                 'order.bill.table:id,code,name',
@@ -382,13 +384,13 @@ class NotificationController extends Controller
                 'channel' => self::CHANNEL_BAR,
                 'sort_at' => optional($item->order?->sent_at)->toIso8601String() ?? optional($item->created_at)->toIso8601String() ?? optional($item->updated_at)->toIso8601String(),
                 'title' => 'Pesanan baru masuk ke bar',
-                'message' => trim(($item->menu?->name ?? 'Item bar') . ' untuk ' . ($item->order?->bill?->table?->name ?? $item->order?->bill?->bill_no)),
+                'message' => trim(($item->billItem?->menu_name ?? $item->menu?->name ?? 'Item bar') . ' untuk ' . ($item->order?->bill?->table?->name ?? $item->order?->bill?->bill_no)),
                 'entity_type' => 'order_item',
                 'entity_id' => $item->id,
                 'meta' => [
                     'order_item_id' => $item->id,
                     'station_type' => $item->station_type,
-                    'menu_name' => $item->menu?->name,
+                    'menu_name' => $item->billItem?->menu_name ?? $item->menu?->name,
                     'qty' => $item->qty,
                     'status' => $item->status,
                     'order_id' => $item->order?->id,
@@ -407,6 +409,7 @@ class NotificationController extends Controller
         return OrderItem::query()
             ->with([
                 'menu:id,name',
+                'billItem:id,menu_name',
                 'order:id,order_no,bill_id',
                 'order.bill:id,bill_no,table_id,status',
                 'order.bill.table:id,code,name',
@@ -420,13 +423,13 @@ class NotificationController extends Controller
                 'channel' => self::CHANNEL_WAITER,
                 'sort_at' => optional($item->ready_at)->toIso8601String() ?? optional($item->updated_at)->toIso8601String(),
                 'title' => 'Pesanan siap diantar',
-                'message' => trim(($item->menu?->name ?? $item->station_type) . ' untuk ' . ($item->order?->bill?->table?->name ?? $item->order?->bill?->bill_no)),
+                'message' => trim(($item->billItem?->menu_name ?? $item->menu?->name ?? $item->station_type) . ' untuk ' . ($item->order?->bill?->table?->name ?? $item->order?->bill?->bill_no)),
                 'entity_type' => 'order_item',
                 'entity_id' => $item->id,
                 'meta' => [
                     'order_item_id' => $item->id,
                     'station_type' => $item->station_type,
-                    'menu_name' => $item->menu?->name,
+                    'menu_name' => $item->billItem?->menu_name ?? $item->menu?->name,
                     'qty' => $item->qty,
                     'order_id' => $item->order?->id,
                     'order_no' => $item->order?->order_no,

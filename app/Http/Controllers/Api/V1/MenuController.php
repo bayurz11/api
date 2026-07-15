@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Menu;
 use App\Models\MenuCategory;
+use App\Models\MenuOption;
 use App\Support\AuditLogger;
 use App\Support\InventoryManager;
 use Illuminate\Http\JsonResponse;
@@ -23,7 +24,11 @@ class MenuController extends Controller
     public function index(Request $request): JsonResponse
     {
         $menus = Menu::query()
-            ->with(['category:id,name,station_type', 'stockItem:id,code,name,unit,current_stock,is_active'])
+            ->with([
+                'category:id,name,station_type',
+                'stockItem:id,code,name,unit,current_stock,is_active',
+                'options:id,menu_id,name,price_delta,is_available,is_active,sort_order',
+            ])
             ->withCount('recipeIngredients')
             ->when($request->filled('category_id'), fn ($query) => $query->where('category_id', $request->integer('category_id')))
             ->when($request->boolean('available_only', false), fn ($query) => $query->where('is_available', true)->where('is_stock_available', true)->where('is_active', true))
@@ -57,12 +62,18 @@ class MenuController extends Controller
             'stock_deduction_qty' => ['nullable', 'numeric', 'gt:0'],
             'is_available' => ['nullable', 'boolean'],
             'is_active' => ['nullable', 'boolean'],
+            'options' => ['nullable', 'array'],
+            'options.*.name' => ['required', 'string', 'max:255'],
+            'options.*.price_delta' => ['nullable', 'numeric', 'min:0'],
+            'options.*.is_available' => ['nullable', 'boolean'],
+            'options.*.is_active' => ['nullable', 'boolean'],
+            'options.*.sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $category = $this->resolveValidCategory($validated['category_id'], $validated['station_type']);
 
         $menu = DB::transaction(function () use ($validated, $category) {
-            return Menu::query()->create([
+            $menu = Menu::query()->create([
                 'category_id' => $validated['category_id'],
                 'stock_item_id' => $validated['stock_item_id'] ?? null,
                 'stock_deduction_qty' => $validated['stock_deduction_qty'] ?? 1,
@@ -76,6 +87,10 @@ class MenuController extends Controller
                 'is_stock_available' => true,
                 'is_active' => $validated['is_active'] ?? true,
             ]);
+
+            $this->syncMenuOptions($menu, $validated['options'] ?? []);
+
+            return $menu;
         });
 
         InventoryManager::syncMenuStockAvailability($menu);
@@ -91,7 +106,11 @@ class MenuController extends Controller
 
         return response()->json([
             'message' => 'Menu berhasil dibuat.',
-            'data' => $menu->load(['category:id,name,station_type', 'stockItem:id,code,name,unit,current_stock,is_active']),
+            'data' => $menu->load([
+                'category:id,name,station_type',
+                'stockItem:id,code,name,unit,current_stock,is_active',
+                'options:id,menu_id,name,price_delta,is_available,is_active,sort_order',
+            ]),
         ], 201);
     }
 
@@ -108,6 +127,13 @@ class MenuController extends Controller
             'stock_deduction_qty' => ['nullable', 'numeric', 'gt:0'],
             'is_available' => ['sometimes', 'boolean'],
             'is_active' => ['sometimes', 'boolean'],
+            'options' => ['nullable', 'array'],
+            'options.*.id' => ['nullable', 'integer', 'exists:menu_options,id'],
+            'options.*.name' => ['required', 'string', 'max:255'],
+            'options.*.price_delta' => ['nullable', 'numeric', 'min:0'],
+            'options.*.is_available' => ['nullable', 'boolean'],
+            'options.*.is_active' => ['nullable', 'boolean'],
+            'options.*.sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $resolvedCategoryId = $validated['category_id'] ?? $menu->category_id;
@@ -126,6 +152,9 @@ class MenuController extends Controller
             }
 
             $menu->save();
+            if (array_key_exists('options', $validated)) {
+                $this->syncMenuOptions($menu, $validated['options'] ?? []);
+            }
         });
         InventoryManager::syncMenuStockAvailability($menu);
 
@@ -141,7 +170,11 @@ class MenuController extends Controller
 
         return response()->json([
             'message' => 'Menu berhasil diperbarui.',
-            'data' => $menu->fresh(['category:id,name,station_type', 'stockItem:id,code,name,unit,current_stock,is_active']),
+            'data' => $menu->fresh([
+                'category:id,name,station_type',
+                'stockItem:id,code,name,unit,current_stock,is_active',
+                'options:id,menu_id,name,price_delta,is_available,is_active,sort_order',
+            ]),
         ]);
     }
 
@@ -219,5 +252,36 @@ class MenuController extends Controller
         $prefix = Str::substr($consonants.$letters, 0, 3);
 
         return str_pad($prefix, 3, 'X');
+    }
+
+    private function syncMenuOptions(Menu $menu, array $options): void
+    {
+        $existingIds = $menu->options()->pluck('id')->all();
+        $keptIds = [];
+
+        foreach ($options as $index => $optionPayload) {
+            $optionId = isset($optionPayload['id']) ? (int) $optionPayload['id'] : null;
+            $attributes = [
+                'name' => $optionPayload['name'],
+                'price_delta' => $optionPayload['price_delta'] ?? 0,
+                'is_available' => $optionPayload['is_available'] ?? true,
+                'is_active' => $optionPayload['is_active'] ?? true,
+                'sort_order' => $optionPayload['sort_order'] ?? $index,
+            ];
+
+            if ($optionId !== null) {
+                $option = $menu->options()->whereKey($optionId)->firstOrFail();
+                $option->update($attributes);
+                $keptIds[] = $option->id;
+                continue;
+            }
+
+            $keptIds[] = $menu->options()->create($attributes)->id;
+        }
+
+        $deleteIds = array_diff($existingIds, $keptIds);
+        if ($deleteIds !== []) {
+            MenuOption::query()->whereIn('id', $deleteIds)->delete();
+        }
     }
 }

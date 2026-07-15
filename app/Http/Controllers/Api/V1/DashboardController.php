@@ -18,7 +18,6 @@ class DashboardController extends Controller
      */
     public function __invoke(Request $request): JsonResponse
     {
-        $today = now()->toDateString();
         $todayStart = now()->startOfDay();
         $tomorrowStart = now()->addDay()->startOfDay();
         $sevenDaysStart = now()->subDays(6)->startOfDay();
@@ -147,12 +146,16 @@ class DashboardController extends Controller
 
         $waiterStatusCounts = OrderItem::query()
             ->selectRaw("SUM(CASE WHEN status = 'READY' THEN 1 ELSE 0 END) as ready_to_serve_count")
-            ->selectRaw("SUM(CASE WHEN status = 'SERVED' AND served_at >= ? AND served_at < ? THEN 1 ELSE 0 END) as served_today_count", [$todayStart, $tomorrowStart])
+            ->selectRaw(
+                "SUM(CASE WHEN status = 'SERVED' AND served_at >= ? AND served_at < ? THEN 1 ELSE 0 END) as served_today_count",
+                [$todayStart, $tomorrowStart],
+            )
             ->first();
 
         $reservationRemindersEnabled = $this->boolSetting('reservation_reminders_enabled', true);
         $reservationReminderMinutesBefore = $this->intSetting('reservation_reminder_minutes_before', 120);
         $eventRemindersEnabled = $this->boolSetting('event_reminders_enabled', true);
+        $eventReminderMinutesBefore = $this->intSetting('event_reminder_minutes_before', 1440);
         $dashboardReminderLimit = $this->intSetting('dashboard_reminder_limit', 4);
 
         $reservationItems = collect();
@@ -211,38 +214,49 @@ class DashboardController extends Controller
 
         $eventItems = collect();
         if ($eventRemindersEnabled) {
+            $eventWindowEnd = now()->copy()->addMinutes($eventReminderMinutesBefore);
             $eventItems = Bill::query()
-                ->with(['table:id,code,name'])
+                ->with(['table:id,code,name', 'customer:id,name'])
                 ->where('bill_type', 'CATERING')
                 ->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID'])
-                ->orderBy('opened_at')
-                ->limit($dashboardReminderLimit)
+                ->whereNotNull('event_scheduled_at')
+                ->where('event_scheduled_at', '>=', now()->copy()->subDays(7))
+                ->where('event_scheduled_at', '<=', $eventWindowEnd)
+                ->orderBy('event_scheduled_at')
                 ->get()
                 ->map(function (Bill $bill) {
-                    $openedAt = $bill->opened_at ?? $bill->created_at;
+                    $minutesRemaining = now()->diffInMinutes($bill->event_scheduled_at, false);
+                    $priority = $minutesRemaining < 0
+                        ? 'overdue'
+                        : ($minutesRemaining <= 120 ? 'soon' : 'upcoming');
 
                     return [
                         'type' => 'event',
                         'id' => $bill->id,
                         'code' => $bill->bill_no,
-                        'title' => 'Transaksi event aktif',
-                        'subtitle' => trim(($bill->customer_name ?: 'Pelanggan event')
+                        'title' => $minutesRemaining < 0
+                            ? 'Event belum ditindak'
+                            : 'Event akan datang',
+                        'subtitle' => trim((($bill->customer?->name ?: $bill->customer_name) ?: 'Pelanggan event')
                             .' · '
                             .($bill->table?->code ?? 'Tanpa meja')),
-                        'customer_name' => $bill->customer_name,
+                        'customer_name' => $bill->customer?->name ?: $bill->customer_name,
                         'table_code' => $bill->table?->code,
                         'table_name' => $bill->table?->name,
                         'guest_count' => (int) $bill->guest_count,
                         'status' => $bill->status,
-                        'scheduled_at' => optional($openedAt)->toIso8601String(),
-                        'minutes_remaining' => $openedAt === null
-                            ? null
-                            : max(0, now()->diffInMinutes($openedAt)),
-                        'priority' => 'active',
+                        'scheduled_at' => optional($bill->event_scheduled_at)->toIso8601String(),
+                        'minutes_remaining' => $minutesRemaining,
+                        'priority' => $priority,
                         'notes' => null,
                         'action_route' => '/bills',
                     ];
                 })
+                ->sortBy([
+                    ['priority', 'asc'],
+                    ['scheduled_at', 'asc'],
+                ])
+                ->take($dashboardReminderLimit)
                 ->values();
         }
 
@@ -291,6 +305,7 @@ class DashboardController extends Controller
                     'reservation_reminders_enabled' => $reservationRemindersEnabled,
                     'reservation_reminder_minutes_before' => $reservationReminderMinutesBefore,
                     'event_reminders_enabled' => $eventRemindersEnabled,
+                    'event_reminder_minutes_before' => $eventReminderMinutesBefore,
                     'dashboard_reminder_limit' => $dashboardReminderLimit,
                 ],
                 'summary' => [

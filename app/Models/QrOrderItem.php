@@ -13,6 +13,7 @@ class QrOrderItem extends Model
     protected $fillable = [
         'qr_order_id',
         'menu_id',
+        'menu_option_id',
         'menu_name',
         'station_type',
         'qty',
@@ -38,5 +39,10 @@ class QrOrderItem extends Model
     public function menu(): BelongsTo
     {
         return $this->belongsTo(Menu::class);
+    }
+
+    public function menuOption(): BelongsTo
+    {
+        return $this->belongsTo(MenuOption::class);
     }
 }

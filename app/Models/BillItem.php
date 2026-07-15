@@ -13,6 +13,7 @@ class BillItem extends Model
     protected $fillable = [
         'bill_id',
         'menu_id',
+        'menu_option_id',
         'menu_name',
         'qty',
         'unit_price',
@@ -38,5 +39,10 @@ class BillItem extends Model
     public function menu(): BelongsTo
     {
         return $this->belongsTo(Menu::class);
+    }
+
+    public function menuOption(): BelongsTo
+    {
+        return $this->belongsTo(MenuOption::class);
     }
 }

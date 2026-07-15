@@ -15,6 +15,7 @@ class WaiterChecklistController extends Controller
         $items = OrderItem::query()
             ->with([
                 'menu:id,name',
+                'billItem:id,menu_name',
                 'order:id,order_no,bill_id,status',
                 'order.bill:id,bill_no,table_id,customer_id,status',
                 'order.bill.table:id,code,name,area',
@@ -37,6 +38,7 @@ class WaiterChecklistController extends Controller
                 'station_type' => $item->station_type,
                 'ready_at' => $item->ready_at,
                 'served_at' => $item->served_at,
+                'menu_name' => $item->billItem?->menu_name ?? $item->menu?->name,
                 'menu' => $item->menu ? [
                     'id' => $item->menu->id,
                     'name' => $item->menu->name,
@@ -77,6 +79,7 @@ class WaiterChecklistController extends Controller
             'customer:id,name,member_code,phone',
             'orders' => fn ($query) => $query->select('id', 'bill_id', 'order_no', 'status', 'sent_at', 'ready_at', 'served_at')->latest('id'),
             'orders.items' => fn ($query) => $query->with('menu:id,name')->orderBy('id'),
+            'orders.items.billItem:id,menu_name',
         ]);
 
         $items = $bill->orders
@@ -84,7 +87,7 @@ class WaiterChecklistController extends Controller
                 'id' => $item->id,
                 'order_id' => $order->id,
                 'order_no' => $order->order_no,
-                'menu_name' => $item->menu?->name,
+                'menu_name' => $item->billItem?->menu_name ?? $item->menu?->name,
                 'qty' => $item->qty,
                 'notes' => $item->notes,
                 'station_type' => $item->station_type,
