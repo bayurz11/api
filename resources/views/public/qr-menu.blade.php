@@ -638,6 +638,234 @@
             border: 1px solid #CDE7D4;
         }
 
+        .hidden {
+            display: none !important;
+        }
+
+        .success-screen {
+            display: none;
+            margin-top: 18px;
+        }
+
+        .success-screen.show {
+            display: block;
+        }
+
+        .success-hero {
+            padding: 22px 20px;
+            border-radius: 24px;
+            background: linear-gradient(135deg, var(--green), var(--deep));
+            color: var(--white);
+            box-shadow: 0 18px 42px rgba(0, 75, 54, 0.18);
+        }
+
+        .success-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.14);
+            font-size: 14px;
+            font-weight: 800;
+        }
+
+        .success-hero h2 {
+            margin: 14px 0 0;
+            font-size: clamp(26px, 4vw, 34px);
+            line-height: 1.1;
+            font-weight: 900;
+        }
+
+        .success-hero p {
+            margin: 10px 0 0;
+            color: rgba(255, 255, 255, 0.92);
+            line-height: 1.55;
+            max-width: 760px;
+        }
+
+        .success-grid {
+            display: grid;
+            grid-template-columns: repeat(12, minmax(0, 1fr));
+            gap: 16px;
+            margin-top: 18px;
+        }
+
+        .success-card {
+            grid-column: span 12;
+            padding: 18px;
+            border-radius: 24px;
+            border: 1px solid var(--line);
+            background: var(--white);
+            box-shadow: var(--shadow);
+        }
+
+        .success-card h3 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--deep);
+        }
+
+        .success-card p {
+            margin: 8px 0 0;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .success-card--summary {
+            grid-column: span 7;
+        }
+
+        .success-card--items {
+            grid-column: span 5;
+        }
+
+        .success-status-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .success-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 800;
+            background: var(--soft);
+            color: var(--deep);
+        }
+
+        .success-status-pill.pending {
+            background: #FFF5CF;
+            color: #8B5E34;
+        }
+
+        .success-status-pill.approved {
+            background: #EDF8F0;
+            color: var(--green);
+        }
+
+        .success-status-pill.rejected {
+            background: var(--danger-bg);
+            color: var(--danger);
+        }
+
+        .success-meta {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .success-meta-item {
+            padding: 14px 16px;
+            border-radius: 18px;
+            background: var(--soft-2);
+        }
+
+        .success-meta-item strong {
+            display: block;
+            font-size: 13px;
+            color: var(--muted);
+            margin-bottom: 4px;
+        }
+
+        .success-meta-item span {
+            display: block;
+            font-size: 18px;
+            font-weight: 900;
+            color: var(--deep);
+        }
+
+        .success-next-steps {
+            margin-top: 16px;
+            padding: 16px;
+            border-radius: 20px;
+            background: #FFFDF5;
+            border: 1px solid var(--line);
+        }
+
+        .success-next-steps strong {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 15px;
+            color: var(--deep);
+        }
+
+        .success-next-steps ul {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--muted);
+            line-height: 1.55;
+        }
+
+        .success-items {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .success-item {
+            padding: 14px 16px;
+            border-radius: 18px;
+            background: #FFFDF5;
+            border: 1px solid var(--line);
+        }
+
+        .success-item-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .success-item-title {
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--deep);
+        }
+
+        .success-item-qty {
+            flex: none;
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: var(--soft);
+            font-size: 13px;
+            font-weight: 800;
+            color: var(--green);
+        }
+
+        .success-item-note {
+            margin-top: 8px;
+            font-size: 13px;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        .success-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .secondary-button {
+            border: 1px solid var(--line);
+            background: var(--white);
+            color: var(--deep);
+            padding: 14px 18px;
+            border-radius: 18px;
+            font-size: 15px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
         .empty-state {
             display: none;
             padding: 28px 18px;
@@ -681,6 +909,15 @@
             .menu-grid {
                 grid-template-columns: 1fr;
                 gap: 14px;
+            }
+
+            .success-card--summary,
+            .success-card--items {
+                grid-column: span 12;
+            }
+
+            .success-meta {
+                grid-template-columns: 1fr;
             }
 
             .menu-cover {
@@ -767,58 +1004,126 @@
             <p>Pilih menu yang ingin Anda pesan dari meja ini, lalu kirim pesanan ke tim restoran.</p>
         </section>
 
-        <section class="panel">
-            <h2>Data Pemesan</h2>
-            <p>Isi nama pelanggan dan jumlah tamu agar pesanan dapat diproses dengan tepat.</p>
-            <div class="customer-grid">
-                <div class="field field-md">
-                    <label for="customerName">Nama pelanggan</label>
-                    <input id="customerName" class="input" type="text" placeholder="Contoh: Bayu">
-                </div>
-                <div class="field field-sm">
-                    <label for="guestCount">Jumlah tamu</label>
-                    <input id="guestCount" class="input" type="number" min="1" value="1">
-                </div>
-                <div class="field field-sm">
-                    <label for="customerPhone">Nomor telepon</label>
-                    <input id="customerPhone" class="input" type="text" placeholder="Opsional">
-                </div>
-                <div class="field">
-                    <label for="orderNotes">Catatan umum</label>
-                    <textarea id="orderNotes" class="textarea" placeholder="Contoh: mohon alat makan tambahan"></textarea>
-                </div>
+        <section id="successScreen" class="success-screen">
+            <div class="success-hero">
+                <div id="successBadge" class="success-badge">Pesanan berhasil masuk</div>
+                <h2>Pesanan Anda sudah diterima</h2>
+                <p id="successSubtitle">Tim restoran sedang meninjau pesanan Anda sebelum diteruskan ke proses berikutnya.</p>
             </div>
-            <div id="feedbackError" class="feedback error"></div>
-            <div id="feedbackSuccess" class="feedback success"></div>
+
+            <div class="success-grid">
+                <section class="success-card success-card--summary">
+                    <h3>Ringkasan Pesanan</h3>
+                    <p id="successDescription">Simpan ringkasan ini agar mudah dicek bila Anda ingin menanyakan status ke tim restoran.</p>
+
+                    <div class="success-status-row">
+                        <div id="successStatusPill" class="success-status-pill pending">Menunggu konfirmasi restoran</div>
+                    </div>
+
+                    <div class="success-meta">
+                        <div class="success-meta-item">
+                            <strong>Nomor pesanan</strong>
+                            <span id="successOrderNo">-</span>
+                        </div>
+                        <div class="success-meta-item">
+                            <strong>Meja</strong>
+                            <span id="successTable">-</span>
+                        </div>
+                        <div class="success-meta-item">
+                            <strong>Nama pelanggan</strong>
+                            <span id="successCustomer">-</span>
+                        </div>
+                        <div class="success-meta-item">
+                            <strong>Jumlah item</strong>
+                            <span id="successItemsCount">0 item</span>
+                        </div>
+                        <div class="success-meta-item">
+                            <strong>Total perkiraan</strong>
+                            <span id="successGrandTotal">Rp 0</span>
+                        </div>
+                        <div class="success-meta-item">
+                            <strong>Waktu kirim</strong>
+                            <span id="successSubmittedAt">-</span>
+                        </div>
+                    </div>
+
+                    <div class="success-next-steps">
+                        <strong>Langkah selanjutnya</strong>
+                        <ul id="successNextSteps">
+                            <li>Pesanan akan dicek oleh tim restoran.</li>
+                            <li>Setelah disetujui, pesanan akan masuk ke tagihan meja Anda.</li>
+                            <li>Jika ingin menambah menu lagi, tekan tombol Pesan Lagi.</li>
+                        </ul>
+                    </div>
+
+                    <div class="success-actions">
+                        <button id="refreshStatusButton" class="submit-button" type="button">Cek Status Pesanan</button>
+                        <button id="backToMenuButton" class="secondary-button" type="button">Pesan Lagi</button>
+                    </div>
+                </section>
+
+                <section class="success-card success-card--items">
+                    <h3>Item yang Dikirim</h3>
+                    <p>Periksa kembali daftar menu yang baru saja Anda kirim dari meja ini.</p>
+                    <div id="successItems" class="success-items"></div>
+                </section>
+            </div>
         </section>
 
-        <section class="panel">
-            <div class="control-panel">
-                <div>
-                    <h2>Cari &amp; filter menu</h2>
-                    <p>Pilih kategori dan cari menu seperti pada halaman tambah order di aplikasi kasir.</p>
-                </div>
-                <div class="search-box">
-                    <span class="search-icon">&#128269;</span>
-                    <input id="searchInput" class="input" type="search" placeholder="Cari menu, SKU, atau kategori">
-                </div>
-                <div id="categoryChips" class="chips-row"></div>
-                <div class="stat-row">
-                    <div class="stat-pill">
-                        <strong>Siap dipesan</strong>
-                        <span id="readyCount">0 menu</span>
+        <div id="orderingFlow">
+            <section class="panel">
+                <h2>Data Pemesan</h2>
+                <p>Isi nama pelanggan dan jumlah tamu agar pesanan dapat diproses dengan tepat.</p>
+                <div class="customer-grid">
+                    <div class="field field-md">
+                        <label for="customerName">Nama pelanggan</label>
+                        <input id="customerName" class="input" type="text" placeholder="Contoh: Bayu">
                     </div>
-                    <div id="unavailableStat" class="stat-pill alert" style="display:none;">
-                        <strong>Ditutup / habis</strong>
-                        <span id="unavailableCount">0 menu</span>
+                    <div class="field field-sm">
+                        <label for="guestCount">Jumlah tamu</label>
+                        <input id="guestCount" class="input" type="number" min="1" value="1">
+                    </div>
+                    <div class="field field-sm">
+                        <label for="customerPhone">Nomor telepon</label>
+                        <input id="customerPhone" class="input" type="text" placeholder="Opsional">
+                    </div>
+                    <div class="field">
+                        <label for="orderNotes">Catatan umum</label>
+                        <textarea id="orderNotes" class="textarea" placeholder="Contoh: mohon alat makan tambahan"></textarea>
                     </div>
                 </div>
-            </div>
-        </section>
+                <div id="feedbackError" class="feedback error"></div>
+                <div id="feedbackSuccess" class="feedback success"></div>
+            </section>
 
-        <div id="menuSummary" class="menu-summary">0 menu siap dipesan</div>
-        <div id="menuEmpty" class="empty-state">Tidak ada menu yang cocok dengan filter atau pencarian.</div>
-        <div id="menuContainer" class="menu-grid"></div>
+            <section class="panel">
+                <div class="control-panel">
+                    <div>
+                        <h2>Cari &amp; filter menu</h2>
+                        <p>Pilih kategori dan cari menu seperti pada halaman tambah order di aplikasi kasir.</p>
+                    </div>
+                    <div class="search-box">
+                        <span class="search-icon">&#128269;</span>
+                        <input id="searchInput" class="input" type="search" placeholder="Cari menu, SKU, atau kategori">
+                    </div>
+                    <div id="categoryChips" class="chips-row"></div>
+                    <div class="stat-row">
+                        <div class="stat-pill">
+                            <strong>Siap dipesan</strong>
+                            <span id="readyCount">0 menu</span>
+                        </div>
+                        <div id="unavailableStat" class="stat-pill alert" style="display:none;">
+                            <strong>Ditutup / habis</strong>
+                            <span id="unavailableCount">0 menu</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <div id="menuSummary" class="menu-summary">0 menu siap dipesan</div>
+            <div id="menuEmpty" class="empty-state">Tidak ada menu yang cocok dengan filter atau pencarian.</div>
+            <div id="menuContainer" class="menu-grid"></div>
+        </div>
     </div>
 
     <div id="cartBar" class="cart-bar hidden">
@@ -838,6 +1143,7 @@
             query: '',
             selected: new Map(),
             activeOptionByMenu: {},
+            lastGuestToken: null,
         };
 
         const menuContainer = document.getElementById('menuContainer');
@@ -853,9 +1159,221 @@
         const unavailableStat = document.getElementById('unavailableStat');
         const unavailableCount = document.getElementById('unavailableCount');
         const menuSummary = document.getElementById('menuSummary');
+        const orderingFlow = document.getElementById('orderingFlow');
+        const successScreen = document.getElementById('successScreen');
+        const successBadge = document.getElementById('successBadge');
+        const successSubtitle = document.getElementById('successSubtitle');
+        const successDescription = document.getElementById('successDescription');
+        const successStatusPill = document.getElementById('successStatusPill');
+        const successOrderNo = document.getElementById('successOrderNo');
+        const successTable = document.getElementById('successTable');
+        const successCustomer = document.getElementById('successCustomer');
+        const successItemsCount = document.getElementById('successItemsCount');
+        const successGrandTotal = document.getElementById('successGrandTotal');
+        const successSubmittedAt = document.getElementById('successSubmittedAt');
+        const successItems = document.getElementById('successItems');
+        const successNextSteps = document.getElementById('successNextSteps');
+        const refreshStatusButton = document.getElementById('refreshStatusButton');
+        const backToMenuButton = document.getElementById('backToMenuButton');
 
         function currency(value) {
             return new Intl.NumberFormat('id-ID').format(Number(value || 0));
+        }
+
+        function formatDateTime(value) {
+            if (!value) {
+                return '-';
+            }
+
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                return '-';
+            }
+
+            return new Intl.DateTimeFormat('id-ID', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+            }).format(date);
+        }
+
+        function mapOrderStatus(status) {
+            switch ((status || '').toUpperCase()) {
+                case 'APPROVED':
+                    return {
+                        label: 'Sudah diterima restoran',
+                        badge: 'Pesanan diterima',
+                        subtitle: 'Pesanan Anda sudah diteruskan ke tagihan meja dan sedang diproses oleh tim restoran.',
+                        description: 'Anda tidak perlu mengirim ulang pesanan. Jika ingin menambah menu, tekan tombol Pesan Lagi.',
+                        className: 'approved',
+                    };
+                case 'REJECTED':
+                    return {
+                        label: 'Pesanan perlu diperiksa ulang',
+                        badge: 'Pesanan belum diproses',
+                        subtitle: 'Pesanan ini belum bisa diteruskan oleh restoran. Silakan cek catatan atau hubungi petugas.',
+                        description: 'Anda dapat kembali ke menu untuk membuat pesanan baru bila diperlukan.',
+                        className: 'rejected',
+                    };
+                default:
+                    return {
+                        label: 'Menunggu konfirmasi restoran',
+                        badge: 'Pesanan berhasil masuk',
+                        subtitle: 'Tim restoran sedang meninjau pesanan Anda sebelum diteruskan ke proses berikutnya.',
+                        description: 'Simpan ringkasan ini agar mudah dicek bila Anda ingin menanyakan status ke tim restoran.',
+                        className: 'pending',
+                    };
+            }
+        }
+
+        function totalItems(items) {
+            return (items || []).reduce((sum, item) => sum + Number(item.qty || 0), 0);
+        }
+
+        function renderSuccessItems(items) {
+            successItems.innerHTML = '';
+
+            if (!items || !items.length) {
+                const empty = document.createElement('div');
+                empty.className = 'success-item';
+                empty.textContent = 'Belum ada item yang tercatat.';
+                successItems.appendChild(empty);
+                return;
+            }
+
+            items.forEach((item) => {
+                const card = document.createElement('div');
+                card.className = 'success-item';
+
+                const head = document.createElement('div');
+                head.className = 'success-item-head';
+
+                const titleWrap = document.createElement('div');
+                const title = document.createElement('div');
+                title.className = 'success-item-title';
+                title.textContent = item.menu_name || item.menuName || 'Menu';
+                titleWrap.appendChild(title);
+
+                const price = document.createElement('div');
+                price.className = 'success-item-note';
+                price.textContent = `Rp ${currency(item.line_total || (Number(item.unit_price || 0) * Number(item.qty || 0)))}`;
+                titleWrap.appendChild(price);
+
+                const qty = document.createElement('div');
+                qty.className = 'success-item-qty';
+                qty.textContent = `${item.qty || 0} item`;
+
+                head.append(titleWrap, qty);
+                card.appendChild(head);
+
+                if (item.notes) {
+                    const note = document.createElement('div');
+                    note.className = 'success-item-note';
+                    note.textContent = `Catatan: ${item.notes}`;
+                    card.appendChild(note);
+                }
+
+                successItems.appendChild(card);
+            });
+        }
+
+        function renderNextSteps(order) {
+            const status = (order.status || '').toUpperCase();
+            const steps = [];
+
+            if (status === 'APPROVED') {
+                steps.push('Pesanan sudah diterima restoran dan masuk ke proses operasional.');
+                if (order.bill && order.bill.bill_no) {
+                    steps.push(`Pesanan ini sudah masuk ke tagihan ${order.bill.bill_no}.`);
+                }
+                steps.push('Jika ingin menambah menu lagi, Anda bisa kembali ke menu dan kirim pesanan tambahan.');
+            } else if (status === 'REJECTED') {
+                steps.push('Pesanan ini belum bisa diproses oleh restoran.');
+                steps.push('Silakan hubungi petugas restoran atau buat pesanan baru bila diperlukan.');
+            } else {
+                steps.push('Pesanan akan dicek terlebih dahulu oleh tim restoran.');
+                steps.push('Setelah disetujui, pesanan akan masuk ke tagihan meja Anda.');
+                steps.push('Jika ingin menambah menu lagi, tekan tombol Pesan Lagi.');
+            }
+
+            successNextSteps.innerHTML = '';
+            steps.forEach((text) => {
+                const li = document.createElement('li');
+                li.textContent = text;
+                successNextSteps.appendChild(li);
+            });
+        }
+
+        function showOrderingFlow() {
+            successScreen.classList.remove('show');
+            orderingFlow.classList.remove('hidden');
+            refreshCart();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function showSuccessScreen(order) {
+            const statusInfo = mapOrderStatus(order.status);
+            const items = order.items || [];
+            const tableLabel = order.table && order.table.code
+                ? `${order.table.code} | ${order.table.name || 'Meja'}`
+                : (state.table && state.table.code ? `${state.table.code} | ${state.table.name || 'Meja'}` : '-');
+
+            successBadge.textContent = statusInfo.badge;
+            successSubtitle.textContent = statusInfo.subtitle;
+            successDescription.textContent = statusInfo.description;
+            successStatusPill.textContent = statusInfo.label;
+            successStatusPill.className = `success-status-pill ${statusInfo.className}`;
+            successOrderNo.textContent = order.order_no || '-';
+            successTable.textContent = tableLabel;
+            successCustomer.textContent = order.customer_name || document.getElementById('customerName').value.trim() || '-';
+            successItemsCount.textContent = `${totalItems(items)} item`;
+            successGrandTotal.textContent = `Rp ${currency(order.grand_total || 0)}`;
+            successSubmittedAt.textContent = formatDateTime(order.submitted_at || new Date().toISOString());
+            renderSuccessItems(items);
+            renderNextSteps(order);
+
+            state.lastGuestToken = order.guest_token || state.lastGuestToken || null;
+            orderingFlow.classList.add('hidden');
+            cartBar.classList.add('hidden');
+            successScreen.classList.add('show');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        async function refreshGuestOrderStatus(showToast = false) {
+            if (!state.lastGuestToken) {
+                return;
+            }
+
+            refreshStatusButton.disabled = true;
+            refreshStatusButton.textContent = 'Memeriksa...';
+
+            try {
+                const response = await fetch(`${apiBase}/qr-menu/orders/${state.lastGuestToken}`, {
+                    headers: {
+                        'Accept': 'application/json',
+                    },
+                });
+                const payload = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(payload.message || 'Status pesanan belum dapat diperiksa.');
+                }
+
+                showSuccessScreen(payload.data);
+
+                if (showToast) {
+                    showSuccess('Status pesanan berhasil diperbarui.');
+                }
+            } catch (error) {
+                if (showToast) {
+                    showError(error.message || 'Status pesanan belum dapat diperiksa.');
+                }
+            } finally {
+                refreshStatusButton.disabled = false;
+                refreshStatusButton.textContent = 'Cek Status Pesanan';
+            }
         }
 
         function showError(message) {
@@ -1344,7 +1862,7 @@
                 document.getElementById('orderNotes').value = '';
                 renderMenus();
                 refreshCart();
-                showSuccess('Pesanan berhasil dikirim. Silakan tunggu konfirmasi dari restoran.');
+                showSuccessScreen(payload.data);
             } catch (error) {
                 showError(error.message || 'Pesanan belum dapat dikirim.');
             } finally {
@@ -1358,6 +1876,8 @@
         });
 
         checkoutButton.addEventListener('click', submitOrder);
+        refreshStatusButton.addEventListener('click', () => refreshGuestOrderStatus(true));
+        backToMenuButton.addEventListener('click', showOrderingFlow);
         loadMenu();
     </script>
 </body>
