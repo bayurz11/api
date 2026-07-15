@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Bill;
+use App\Models\Ingredient;
 use App\Models\OrderItem;
 use App\Models\Reservation;
+use App\Models\ShoppingNote;
 use App\Models\Setting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,6 +38,42 @@ class DashboardController extends Controller
             ->where('status', 'PAID')
             ->distinct('bill_id')
             ->count('bill_id');
+
+        $todayPurchaseTotal = (float) DB::table('ingredient_stock_movements')
+            ->whereIn('movement_type', ['INITIAL', 'ADJUST_IN'])
+            ->where('created_at', '>=', $todayStart)
+            ->where('created_at', '<', $tomorrowStart)
+            ->sum('total_cost');
+
+        $todayEstimatedCogs = (float) DB::table('bill_items')
+            ->join('bills', 'bills.id', '=', 'bill_items.bill_id')
+            ->join('payments', 'payments.bill_id', '=', 'bills.id')
+            ->join('menus', 'menus.id', '=', 'bill_items.menu_id')
+            ->leftJoin('ingredients', 'ingredients.id', '=', 'menus.stock_item_id')
+            ->where('payments.paid_at', '>=', $todayStart)
+            ->where('payments.paid_at', '<', $tomorrowStart)
+            ->where('payments.status', 'PAID')
+            ->sum(DB::raw(
+                'bill_items.qty * COALESCE(menus.stock_deduction_qty, 0) * COALESCE(NULLIF(ingredients.last_purchase_price, 0), ingredients.purchase_price, 0)'
+            ));
+
+        $inventoryItemsCount = Ingredient::query()->count();
+        $lowStockItemsCount = Ingredient::query()
+            ->whereColumn('current_stock', '<=', 'minimum_stock')
+            ->count();
+        $outOfStockItemsCount = Ingredient::query()
+            ->where('current_stock', '<=', 0)
+            ->count();
+        $inventoryAssetValue = (float) Ingredient::query()
+            ->selectRaw('SUM(current_stock * COALESCE(NULLIF(last_purchase_price, 0), purchase_price, 0)) as total_value')
+            ->value('total_value');
+        $openShoppingNotesCount = ShoppingNote::query()
+            ->where('status', 'OPEN')
+            ->count();
+        $shoppingEstimateTotal = (float) ShoppingNote::query()
+            ->where('status', 'OPEN')
+            ->selectRaw('SUM(COALESCE(requested_qty, 0) * COALESCE(estimated_unit_price, 0)) as total_value')
+            ->value('total_value');
 
         $previousSales = (float) DB::table('payments')
             ->where('paid_at', '>=', $previousSevenDaysStart)
@@ -277,12 +315,23 @@ class DashboardController extends Controller
                 'today_bills' => $todayBills,
                 'average_bill' => $todayBills > 0 ? round($todaySales / $todayBills, 2) : 0,
                 'sales_growth_percent' => round($salesGrowth, 2),
+                'today_purchase_total' => $todayPurchaseTotal,
+                'today_estimated_cogs' => $todayEstimatedCogs,
+                'today_estimated_profit' => $todaySales - $todayEstimatedCogs,
             ],
             'analytics' => [
                 'sales_trend' => $trendPayload,
                 'top_items' => $topItems,
                 'payment_methods' => $paymentMethods,
                 'bill_types' => $billTypes,
+                'inventory' => [
+                    'stock_items_count' => $inventoryItemsCount,
+                    'low_stock_items_count' => $lowStockItemsCount,
+                    'out_of_stock_items_count' => $outOfStockItemsCount,
+                    'inventory_asset_value' => round($inventoryAssetValue, 2),
+                    'open_shopping_notes_count' => $openShoppingNotesCount,
+                    'shopping_estimate_total' => round($shoppingEstimateTotal, 2),
+                ],
                 'station_load' => [
                     'kitchen' => [
                         'waiting_count' => (int) ($kitchenStatusCounts->waiting_count ?? 0),
