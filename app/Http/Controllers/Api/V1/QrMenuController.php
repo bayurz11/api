@@ -46,7 +46,7 @@ class QrMenuController extends Controller
                     ->where('is_available', true)
                     ->where('is_stock_available', true)
                     ->orderBy('name')
-                    ->get(['id', 'sku', 'name', 'description', 'price', 'station_type']);
+                    ->get(['id', 'sku', 'name', 'description', 'image_url', 'price', 'station_type']);
 
                 return [
                     'id' => $category->id,
