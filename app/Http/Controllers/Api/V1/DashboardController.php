@@ -11,6 +11,7 @@ use App\Models\ShoppingNote;
 use App\Models\Setting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
@@ -25,7 +26,18 @@ class DashboardController extends Controller
         $sevenDaysStart = now()->subDays(6)->startOfDay();
         $previousSevenDaysStart = now()->subDays(13)->startOfDay();
         $previousWindowEnd = now()->subDays(6)->startOfDay();
+        $user = $request->user();
 
+        $payload = Cache::remember(
+            $this->dashboardCacheKey((int) $user->id),
+            now()->addSeconds(10),
+            function () use (
+                $todayStart,
+                $tomorrowStart,
+                $sevenDaysStart,
+                $previousSevenDaysStart,
+                $previousWindowEnd
+            ): array {
         $todaySales = (float) DB::table('payments')
             ->where('paid_at', '>=', $todayStart)
             ->where('paid_at', '<', $tomorrowStart)
@@ -304,7 +316,7 @@ class DashboardController extends Controller
             ->take(max(1, $dashboardReminderLimit))
             ->values();
 
-        return response()->json([
+        return [
             'summary' => [
                 'total_tables' => DB::table('tables')->count(),
                 'available_tables' => DB::table('tables')->where('status', 'AVAILABLE')->count(),
@@ -365,7 +377,16 @@ class DashboardController extends Controller
                 ],
                 'items' => $reminderItems,
             ],
-        ]);
+        ];
+            },
+        );
+
+        return response()->json($payload);
+    }
+
+    private function dashboardCacheKey(int $userId): string
+    {
+        return "dashboard:v1:user:{$userId}";
     }
 
     private function boolSetting(string $key, bool $default): bool

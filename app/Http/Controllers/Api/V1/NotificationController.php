@@ -11,6 +11,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
 class NotificationController extends Controller
@@ -44,11 +45,11 @@ class NotificationController extends Controller
         }
 
         $channels = $requestedChannel !== null ? [$requestedChannel] : $allowedChannels;
-        $notifications = $this->buildNotifications($channels, $limit);
+        $notifications = $this->cachedNotifications($channels, $limit);
         $notifications = $this->attachReadState($user, $notifications);
 
         return response()->json([
-            'summary' => $this->buildSummary($user, $channels, $notifications),
+            'summary' => $this->buildSummary($channels, $notifications),
             'data' => $notifications->values(),
         ]);
     }
@@ -118,7 +119,7 @@ class NotificationController extends Controller
         }
 
         $channels = $requestedChannel !== null ? [$requestedChannel] : $allowedChannels;
-        $notifications = $this->buildNotifications($channels, 500);
+        $notifications = $this->cachedNotifications($channels, 500);
 
         if (! $this->hasNotificationReadsTable()) {
             return response()->json([
@@ -229,25 +230,9 @@ class NotificationController extends Controller
         });
     }
 
-    private function buildSummary(User $user, array $channels, Collection $items): array
+    private function buildSummary(array $channels, Collection $items): array
     {
-        $active = [
-            'kitchen_queue_count' => in_array(self::CHANNEL_KITCHEN, $channels, true)
-                ? OrderItem::query()->where('station_type', 'KITCHEN')->whereIn('status', ['WAITING', 'ACCEPTED', 'COOKING'])->count()
-                : 0,
-            'bar_queue_count' => in_array(self::CHANNEL_BAR, $channels, true)
-                ? OrderItem::query()->where('station_type', 'BAR')->whereIn('status', ['WAITING', 'ACCEPTED', 'PREPARING'])->count()
-                : 0,
-            'ready_items_count' => in_array(self::CHANNEL_WAITER, $channels, true)
-                ? OrderItem::query()->where('status', 'READY')->count()
-                : 0,
-            'pending_qr_orders_count' => in_array(self::CHANNEL_QR, $channels, true)
-                ? QrOrder::query()->where('status', 'PENDING')->count()
-                : 0,
-            'cashier_action_bills_count' => in_array(self::CHANNEL_CASHIER, $channels, true)
-                ? Bill::query()->whereIn('status', ['READY_TO_PAY', 'PARTIALLY_PAID'])->count()
-                : 0,
-        ];
+        $active = $this->cachedActiveSummary($channels);
 
         $unread = [
             'kitchen_queue_unread_count' => 0,
@@ -284,6 +269,61 @@ class NotificationController extends Controller
         $unread['total_unread_count'] = array_sum($unread);
 
         return array_merge($active, $unread);
+    }
+
+    private function cachedNotifications(array $channels, int $limit): Collection
+    {
+        $payload = Cache::remember(
+            $this->notificationsCacheKey($channels, $limit),
+            now()->addSeconds(8),
+            fn (): array => $this->buildNotifications($channels, $limit)->values()->all(),
+        );
+
+        return collect($payload);
+    }
+
+    private function cachedActiveSummary(array $channels): array
+    {
+        return Cache::remember(
+            $this->activeSummaryCacheKey($channels),
+            now()->addSeconds(8),
+            fn (): array => $this->buildActiveSummary($channels),
+        );
+    }
+
+    private function buildActiveSummary(array $channels): array
+    {
+        return [
+            'kitchen_queue_count' => in_array(self::CHANNEL_KITCHEN, $channels, true)
+                ? OrderItem::query()->where('station_type', 'KITCHEN')->whereIn('status', ['WAITING', 'ACCEPTED', 'COOKING'])->count()
+                : 0,
+            'bar_queue_count' => in_array(self::CHANNEL_BAR, $channels, true)
+                ? OrderItem::query()->where('station_type', 'BAR')->whereIn('status', ['WAITING', 'ACCEPTED', 'PREPARING'])->count()
+                : 0,
+            'ready_items_count' => in_array(self::CHANNEL_WAITER, $channels, true)
+                ? OrderItem::query()->where('status', 'READY')->count()
+                : 0,
+            'pending_qr_orders_count' => in_array(self::CHANNEL_QR, $channels, true)
+                ? QrOrder::query()->where('status', 'PENDING')->count()
+                : 0,
+            'cashier_action_bills_count' => in_array(self::CHANNEL_CASHIER, $channels, true)
+                ? Bill::query()->whereIn('status', ['READY_TO_PAY', 'PARTIALLY_PAID'])->count()
+                : 0,
+        ];
+    }
+
+    private function notificationsCacheKey(array $channels, int $limit): string
+    {
+        $channelKey = md5(implode('|', $channels));
+
+        return "notifications:v1:channels:{$channelKey}:limit:{$limit}";
+    }
+
+    private function activeSummaryCacheKey(array $channels): string
+    {
+        $channelKey = md5(implode('|', $channels));
+
+        return "notifications-summary:v1:channels:{$channelKey}";
     }
 
     private function allowedChannelsForUser(User $user): array
