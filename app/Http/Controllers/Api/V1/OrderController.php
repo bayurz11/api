@@ -85,6 +85,7 @@ class OrderController extends Controller
                     qty: (int) $item['qty'],
                     userId: $user->id,
                     reason: "Order POS {$order->order_no} untuk {$menuName}",
+                    menuOption: $menuOption,
                 );
 
                 $billItem = BillItem::query()->create([
@@ -151,7 +152,11 @@ class OrderController extends Controller
         /** @var MenuOption|null $option */
         $option = $options->get($optionId);
         abort_if($option === null || $option->menu_id !== $menu->id, 422, "Varian menu {$menu->name} tidak valid.");
-        abort_if(! $option->is_active || ! $option->is_available, 422, "Varian {$option->name} untuk menu {$menu->name} sedang tidak tersedia.");
+        abort_if(
+            ! $option->is_active || ! $option->is_available || ! $option->is_stock_available,
+            422,
+            "Varian {$option->name} untuk menu {$menu->name} sedang tidak tersedia.",
+        );
 
         return $option;
     }

@@ -35,9 +35,10 @@ class QrMenuController extends Controller
                 $menus = Menu::query()
                     ->with([
                         'options' => fn ($query) => $query
-                            ->select('id', 'menu_id', 'name', 'price_delta', 'is_available', 'is_active', 'sort_order')
+                            ->select('id', 'menu_id', 'name', 'price_delta', 'is_available', 'is_stock_available', 'is_active', 'sort_order')
                             ->where('is_active', true)
                             ->where('is_available', true)
+                            ->where('is_stock_available', true)
                             ->orderBy('sort_order')
                             ->orderBy('id'),
                     ])
@@ -256,6 +257,9 @@ class QrMenuController extends Controller
                     qty: (int) $qrItem->qty,
                     userId: $user->id,
                     reason: "Order QR {$order->order_no} untuk {$qrItem->menu_name}",
+                    menuOption: $qrItem->menu_option_id
+                        ? MenuOption::query()->find($qrItem->menu_option_id)
+                        : null,
                 );
 
                 $billItem = BillItem::query()->create([
@@ -376,7 +380,11 @@ class QrMenuController extends Controller
         /** @var MenuOption|null $option */
         $option = $options->get($optionId);
         abort_if($option === null || $option->menu_id !== $menu->id, 422, "Varian menu {$menu->name} tidak valid.");
-        abort_if(! $option->is_active || ! $option->is_available, 422, "Varian {$option->name} untuk menu {$menu->name} sedang tidak tersedia.");
+        abort_if(
+            ! $option->is_active || ! $option->is_available || ! $option->is_stock_available,
+            422,
+            "Varian {$option->name} untuk menu {$menu->name} sedang tidak tersedia.",
+        );
 
         return $option;
     }

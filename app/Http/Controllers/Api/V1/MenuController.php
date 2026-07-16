@@ -29,7 +29,9 @@ class MenuController extends Controller
             ->with([
                 'category:id,name,station_type',
                 'stockItem:id,code,name,unit,current_stock,is_active',
-                'options:id,menu_id,name,price_delta,is_available,is_active,sort_order',
+                'options.stockItem:id,code,name,unit,current_stock,is_active',
+                'options:id,menu_id,stock_item_id,stock_deduction_qty,name,price_delta,is_available,is_stock_available,is_active,sort_order',
+                'recipeIngredients:id,code,name,unit,current_stock,minimum_stock',
             ])
             ->withCount('recipeIngredients')
             ->when($request->filled('category_id'), fn ($query) => $query->where('category_id', $request->integer('category_id')))
@@ -65,7 +67,12 @@ class MenuController extends Controller
             'is_available' => ['nullable', 'boolean'],
             'is_active' => ['nullable', 'boolean'],
             'options' => ['nullable', 'array'],
+            'recipe_ingredients' => ['nullable', 'array'],
+            'recipe_ingredients.*.ingredient_id' => ['required', 'integer', 'distinct', 'exists:ingredients,id'],
+            'recipe_ingredients.*.qty_per_portion' => ['required', 'numeric', 'gt:0'],
             'options.*.name' => ['required', 'string', 'max:255'],
+            'options.*.stock_item_id' => ['nullable', 'integer', 'exists:ingredients,id'],
+            'options.*.stock_deduction_qty' => ['nullable', 'numeric', 'gt:0'],
             'options.*.price_delta' => ['nullable', 'numeric', 'min:0'],
             'options.*.is_available' => ['nullable', 'boolean'],
             'options.*.is_active' => ['nullable', 'boolean'],
@@ -93,6 +100,7 @@ class MenuController extends Controller
                 ]);
 
                 $this->syncMenuOptions($menu, $validated['options'] ?? []);
+                $this->syncRecipeIngredients($menu, $validated['recipe_ingredients'] ?? null);
 
                 return $menu;
             });
@@ -116,7 +124,9 @@ class MenuController extends Controller
             'data' => $menu->load([
                 'category:id,name,station_type',
                 'stockItem:id,code,name,unit,current_stock,is_active',
-                'options:id,menu_id,name,price_delta,is_available,is_active,sort_order',
+                'options.stockItem:id,code,name,unit,current_stock,is_active',
+                'options:id,menu_id,stock_item_id,stock_deduction_qty,name,price_delta,is_available,is_stock_available,is_active,sort_order',
+                'recipeIngredients:id,code,name,unit,current_stock,minimum_stock',
             ]),
         ], 201);
     }
@@ -135,8 +145,13 @@ class MenuController extends Controller
             'is_available' => ['sometimes', 'boolean'],
             'is_active' => ['sometimes', 'boolean'],
             'options' => ['nullable', 'array'],
+            'recipe_ingredients' => ['nullable', 'array'],
+            'recipe_ingredients.*.ingredient_id' => ['required', 'integer', 'distinct', 'exists:ingredients,id'],
+            'recipe_ingredients.*.qty_per_portion' => ['required', 'numeric', 'gt:0'],
             'options.*.id' => ['nullable', 'integer', 'exists:menu_options,id'],
             'options.*.name' => ['required', 'string', 'max:255'],
+            'options.*.stock_item_id' => ['nullable', 'integer', 'exists:ingredients,id'],
+            'options.*.stock_deduction_qty' => ['nullable', 'numeric', 'gt:0'],
             'options.*.price_delta' => ['nullable', 'numeric', 'min:0'],
             'options.*.is_available' => ['nullable', 'boolean'],
             'options.*.is_active' => ['nullable', 'boolean'],
@@ -164,6 +179,9 @@ class MenuController extends Controller
                 if (array_key_exists('options', $validated)) {
                     $this->syncMenuOptions($menu, $validated['options'] ?? []);
                 }
+                if (array_key_exists('recipe_ingredients', $validated)) {
+                    $this->syncRecipeIngredients($menu, $validated['recipe_ingredients']);
+                }
             });
         } catch (Throwable $exception) {
             return $this->handleWriteFailure($exception, $request, $menu->id, $validated);
@@ -186,7 +204,9 @@ class MenuController extends Controller
             'data' => $menu->fresh([
                 'category:id,name,station_type',
                 'stockItem:id,code,name,unit,current_stock,is_active',
-                'options:id,menu_id,name,price_delta,is_available,is_active,sort_order',
+                'options.stockItem:id,code,name,unit,current_stock,is_active',
+                'options:id,menu_id,stock_item_id,stock_deduction_qty,name,price_delta,is_available,is_stock_available,is_active,sort_order',
+                'recipeIngredients:id,code,name,unit,current_stock,minimum_stock',
             ]),
         ]);
     }
@@ -275,9 +295,12 @@ class MenuController extends Controller
         foreach ($options as $index => $optionPayload) {
             $optionId = isset($optionPayload['id']) ? (int) $optionPayload['id'] : null;
             $attributes = [
+                'stock_item_id' => $optionPayload['stock_item_id'] ?? null,
+                'stock_deduction_qty' => $optionPayload['stock_deduction_qty'] ?? 1,
                 'name' => $optionPayload['name'],
                 'price_delta' => $optionPayload['price_delta'] ?? 0,
                 'is_available' => $optionPayload['is_available'] ?? true,
+                'is_stock_available' => true,
                 'is_active' => $optionPayload['is_active'] ?? true,
                 'sort_order' => $optionPayload['sort_order'] ?? $index,
             ];
@@ -298,10 +321,37 @@ class MenuController extends Controller
         }
     }
 
+    private function syncRecipeIngredients(Menu $menu, ?array $ingredients): void
+    {
+        if ($ingredients === null) {
+            return;
+        }
+
+        $syncPayload = collect($ingredients)
+            ->mapWithKeys(fn (array $row) => [
+                (int) $row['ingredient_id'] => [
+                    'qty_per_portion' => $row['qty_per_portion'],
+                ],
+            ])
+            ->all();
+
+        $menu->recipeIngredients()->sync($syncPayload);
+    }
+
     private function normalizeMenuPayload(array $validated, ?Menu $menu = null): array
     {
         $stockItemId = $validated['stock_item_id'] ?? $menu?->stock_item_id;
         $stockDeductionQty = $validated['stock_deduction_qty'] ?? $menu?->stock_deduction_qty ?? 1;
+        $hasRecipe = array_key_exists('recipe_ingredients', $validated)
+            && is_array($validated['recipe_ingredients'])
+            && $validated['recipe_ingredients'] !== [];
+
+        if ($hasRecipe) {
+            $validated['stock_item_id'] = null;
+            $validated['stock_deduction_qty'] = 1;
+
+            return $validated;
+        }
 
         if ($stockItemId === null) {
             $validated['stock_item_id'] = null;

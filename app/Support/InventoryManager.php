@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Ingredient;
 use App\Models\IngredientStockMovement;
 use App\Models\Menu;
+use App\Models\MenuOption;
 use App\Models\OrderItem;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -16,66 +17,42 @@ class InventoryManager
         int $qty,
         ?int $userId,
         string $reason,
+        ?MenuOption $menuOption = null,
     ): void {
+        $touchedIngredientIds = [];
+
         if ($menu->stock_item_id !== null) {
-            self::deductLinkedStockItem($menu, $qty, $userId, $reason);
-
-            return;
-        }
-
-        $recipeItems = $menu->recipeIngredients()->get();
-
-        if ($recipeItems->isEmpty()) {
-            self::syncMenuStockAvailability($menu);
-
-            return;
-        }
-
-        $ingredientIds = $recipeItems->pluck('id')->all();
-        /** @var Collection<int, Ingredient> $ingredients */
-        $ingredients = Ingredient::query()
-            ->whereIn('id', $ingredientIds)
-            ->lockForUpdate()
-            ->get()
-            ->keyBy('id');
-
-        foreach ($recipeItems as $recipeIngredient) {
-            /** @var Ingredient|null $ingredient */
-            $ingredient = $ingredients->get($recipeIngredient->id);
-            abort_if(! $ingredient || ! $ingredient->is_active, 422, "Bahan baku {$recipeIngredient->name} tidak aktif.");
-
-            $requiredQty = round((float) $recipeIngredient->pivot->qty_per_portion * $qty, 2);
-            abort_if(
-                (float) $ingredient->current_stock < $requiredQty,
-                422,
-                "Stok bahan baku {$ingredient->name} tidak cukup untuk menu {$menu->name}.",
+            $touchedIngredientIds = array_merge(
+                $touchedIngredientIds,
+                self::deductLinkedStockItem($menu->stock_item_id, max((float) $menu->stock_deduction_qty, 0.01) * $qty, $menu->name, $reason, $userId),
+            );
+        } else {
+            $touchedIngredientIds = array_merge(
+                $touchedIngredientIds,
+                self::deductRecipeItems($menu, $qty, $reason, $userId),
             );
         }
 
-        foreach ($recipeItems as $recipeIngredient) {
-            /** @var Ingredient $ingredient */
-            $ingredient = $ingredients->get($recipeIngredient->id);
-            $requiredQty = round((float) $recipeIngredient->pivot->qty_per_portion * $qty, 2);
-            $stockBefore = (float) $ingredient->current_stock;
-            $stockAfter = round($stockBefore - $requiredQty, 2);
-
-            $ingredient->update([
-                'current_stock' => $stockAfter,
-            ]);
-
-            IngredientStockMovement::query()->create([
-                'ingredient_id' => $ingredient->id,
-                'movement_type' => 'ORDER_OUT',
-                'qty_delta' => -$requiredQty,
-                'stock_before' => $stockBefore,
-                'stock_after' => $stockAfter,
-                'reason' => $reason,
-                'created_by' => $userId,
-            ]);
+        if ($menuOption?->stock_item_id !== null) {
+            $touchedIngredientIds = array_merge(
+                $touchedIngredientIds,
+                self::deductLinkedStockItem(
+                    $menuOption->stock_item_id,
+                    max((float) $menuOption->stock_deduction_qty, 0.01) * $qty,
+                    "{$menu->name} - {$menuOption->name}",
+                    $reason,
+                    $userId,
+                ),
+            );
         }
 
-        self::syncMenusByIngredientIds($ingredientIds);
-        ShoppingNoteManager::syncByIngredientIds($ingredientIds, $userId);
+        if ($touchedIngredientIds !== []) {
+            self::syncMenusByIngredientIds(array_values(array_unique($touchedIngredientIds)));
+            ShoppingNoteManager::syncByIngredientIds(array_values(array_unique($touchedIngredientIds)), $userId);
+            return;
+        }
+
+        self::syncMenuStockAvailability($menu);
     }
 
     public static function restoreForOrderItem(
@@ -94,58 +71,46 @@ class InventoryManager
             return;
         }
 
+        $orderItem->loadMissing('billItem.menuOption');
+        $menuOption = $orderItem->billItem?->menuOption;
+        $touchedIngredientIds = [];
+
         if ($menu->stock_item_id !== null) {
-            self::restoreLinkedStockItem($menu, (int) $orderItem->qty, $userId, $reason);
-            $orderItem->update(['stock_deducted' => false]);
-
-            return;
+            $touchedIngredientIds = array_merge(
+                $touchedIngredientIds,
+                self::restoreLinkedStockItem(
+                    $menu->stock_item_id,
+                    max((float) $menu->stock_deduction_qty, 0.01) * (int) $orderItem->qty,
+                    $reason,
+                    $userId,
+                ),
+            );
+        } else {
+            $touchedIngredientIds = array_merge(
+                $touchedIngredientIds,
+                self::restoreRecipeItems($menu, (int) $orderItem->qty, $reason, $userId),
+            );
         }
 
-        $recipeItems = $menu->recipeIngredients()->get();
-        if ($recipeItems->isEmpty()) {
-            $orderItem->update(['stock_deducted' => false]);
-            self::syncMenuStockAvailability($menu);
-
-            return;
-        }
-
-        $ingredientIds = $recipeItems->pluck('id')->all();
-        /** @var Collection<int, Ingredient> $ingredients */
-        $ingredients = Ingredient::query()
-            ->whereIn('id', $ingredientIds)
-            ->lockForUpdate()
-            ->get()
-            ->keyBy('id');
-
-        foreach ($recipeItems as $recipeIngredient) {
-            /** @var Ingredient|null $ingredient */
-            $ingredient = $ingredients->get($recipeIngredient->id);
-            if (! $ingredient) {
-                continue;
-            }
-
-            $restoreQty = round((float) $recipeIngredient->pivot->qty_per_portion * (int) $orderItem->qty, 2);
-            $stockBefore = (float) $ingredient->current_stock;
-            $stockAfter = round($stockBefore + $restoreQty, 2);
-
-            $ingredient->update([
-                'current_stock' => $stockAfter,
-            ]);
-
-            IngredientStockMovement::query()->create([
-                'ingredient_id' => $ingredient->id,
-                'movement_type' => 'ORDER_RESTORE',
-                'qty_delta' => $restoreQty,
-                'stock_before' => $stockBefore,
-                'stock_after' => $stockAfter,
-                'reason' => $reason,
-                'created_by' => $userId,
-            ]);
+        if ($menuOption?->stock_item_id !== null) {
+            $touchedIngredientIds = array_merge(
+                $touchedIngredientIds,
+                self::restoreLinkedStockItem(
+                    $menuOption->stock_item_id,
+                    max((float) $menuOption->stock_deduction_qty, 0.01) * (int) $orderItem->qty,
+                    $reason,
+                    $userId,
+                ),
+            );
         }
 
         $orderItem->update(['stock_deducted' => false]);
-        self::syncMenusByIngredientIds($ingredientIds);
-        ShoppingNoteManager::syncByIngredientIds($ingredientIds, $userId);
+        if ($touchedIngredientIds !== []) {
+            self::syncMenusByIngredientIds(array_values(array_unique($touchedIngredientIds)));
+            ShoppingNoteManager::syncByIngredientIds(array_values(array_unique($touchedIngredientIds)), $userId);
+            return;
+        }
+        self::syncMenuStockAvailability($menu);
     }
 
     public static function syncMenusByIngredientIds(array $ingredientIds): void
@@ -158,7 +123,8 @@ class InventoryManager
             ->where(function ($query) use ($ingredientIds) {
                 $query
                     ->whereIn('stock_item_id', $ingredientIds)
-                    ->orWhereHas('recipeIngredients', fn ($innerQuery) => $innerQuery->whereIn('ingredients.id', $ingredientIds));
+                    ->orWhereHas('recipeIngredients', fn ($innerQuery) => $innerQuery->whereIn('ingredients.id', $ingredientIds))
+                    ->orWhereHas('options', fn ($innerQuery) => $innerQuery->whereIn('stock_item_id', $ingredientIds));
             })
             ->get();
 
@@ -169,67 +135,77 @@ class InventoryManager
 
     public static function syncMenuStockAvailability(Menu $menu): void
     {
+        $menu->loadMissing(['options', 'recipeIngredients']);
+
+        $baseStockAvailable = true;
+
         if ($menu->stock_item_id !== null) {
             $stockItem = Ingredient::query()->find($menu->stock_item_id);
             $requiredQty = max((float) $menu->stock_deduction_qty, 0.01);
-            $isStockAvailable = $stockItem !== null
+            $baseStockAvailable = $stockItem !== null
                 && $stockItem->is_active
                 && (float) $stockItem->current_stock >= $requiredQty;
-
-            $menu->forceFill([
-                'is_stock_available' => $isStockAvailable,
-            ])->saveQuietly();
-
-            return;
-        }
-
-        $recipeItems = $menu->recipeIngredients()->get();
-        $isStockAvailable = true;
-
-        if ($recipeItems->isNotEmpty()) {
+        } else {
+            $recipeItems = $menu->recipeIngredients;
             $ingredientStocks = Ingredient::query()
-                ->whereIn('id', $recipeItems->pluck('id'))
-                ->get()
-                ->keyBy('id');
+                ->whereIn('id', $recipeItems->pluck('id')->all())
+                ->get()->keyBy('id');
 
             foreach ($recipeItems as $recipeIngredient) {
-                /** @var Ingredient|null $ingredient */
                 $ingredient = $ingredientStocks->get($recipeIngredient->id);
-                if (! $ingredient || ! $ingredient->is_active) {
-                    $isStockAvailable = false;
-                    break;
-                }
-
-                if ((float) $ingredient->current_stock < (float) $recipeIngredient->pivot->qty_per_portion) {
-                    $isStockAvailable = false;
+                if (! $ingredient || ! $ingredient->is_active || (float) $ingredient->current_stock < (float) $recipeIngredient->pivot->qty_per_portion) {
+                    $baseStockAvailable = false;
                     break;
                 }
             }
         }
 
+        $options = $menu->options;
+        foreach ($options as $option) {
+            $optionStockAvailable = true;
+            if ($option->stock_item_id !== null) {
+                $stockItem = Ingredient::query()->find($option->stock_item_id);
+                $requiredQty = max((float) $option->stock_deduction_qty, 0.01);
+                $optionStockAvailable = $stockItem !== null
+                    && $stockItem->is_active
+                    && (float) $stockItem->current_stock >= $requiredQty;
+            }
+
+            $option->forceFill([
+                'is_stock_available' => $optionStockAvailable,
+            ])->saveQuietly();
+        }
+
+        $hasOrderableOption = $options->isEmpty()
+            ? true
+            : $options->contains(
+                fn (MenuOption $option) => $option->is_active
+                    && $option->is_available
+                    && $option->is_stock_available,
+            );
+
         $menu->forceFill([
-            'is_stock_available' => $isStockAvailable,
+            'is_stock_available' => $baseStockAvailable && $hasOrderableOption,
         ])->saveQuietly();
     }
 
     private static function deductLinkedStockItem(
-        Menu $menu,
-        int $qty,
-        ?int $userId,
+        int $stockItemId,
+        float $requiredQty,
+        string $menuName,
         string $reason,
-    ): void {
+        ?int $userId,
+    ): array {
         /** @var Ingredient|null $stockItem */
         $stockItem = Ingredient::query()
             ->lockForUpdate()
-            ->find($menu->stock_item_id);
+            ->find($stockItemId);
 
-        abort_if(! $stockItem || ! $stockItem->is_active, 422, "Stok barang untuk menu {$menu->name} belum aktif.");
-
-        $requiredQty = round(max((float) $menu->stock_deduction_qty, 0.01) * $qty, 2);
+        abort_if(! $stockItem || ! $stockItem->is_active, 422, "Stok barang untuk menu {$menuName} belum aktif.");
         abort_if(
             (float) $stockItem->current_stock < $requiredQty,
             422,
-            "Stok barang {$stockItem->name} tidak cukup untuk menu {$menu->name}.",
+            "Stok barang {$stockItem->name} tidak cukup untuk menu {$menuName}.",
         );
 
         $stockBefore = (float) $stockItem->current_stock;
@@ -255,28 +231,24 @@ class InventoryManager
             'created_by' => $userId,
         ]);
 
-        self::syncMenusByIngredientIds([$stockItem->id]);
-        ShoppingNoteManager::syncByIngredientIds([$stockItem->id], $userId);
+        return [$stockItem->id];
     }
 
     private static function restoreLinkedStockItem(
-        Menu $menu,
-        int $qty,
-        ?int $userId,
+        int $stockItemId,
+        float $restoreQty,
         string $reason,
-    ): void {
+        ?int $userId,
+    ): array {
         /** @var Ingredient|null $stockItem */
         $stockItem = Ingredient::query()
             ->lockForUpdate()
-            ->find($menu->stock_item_id);
+            ->find($stockItemId);
 
         if (! $stockItem) {
-            self::syncMenuStockAvailability($menu);
-
-            return;
+            return [];
         }
 
-        $restoreQty = round(max((float) $menu->stock_deduction_qty, 0.01) * $qty, 2);
         $stockBefore = (float) $stockItem->current_stock;
         $stockAfter = round($stockBefore + $restoreQty, 2);
 
@@ -300,7 +272,108 @@ class InventoryManager
             'created_by' => $userId,
         ]);
 
-        self::syncMenusByIngredientIds([$stockItem->id]);
-        ShoppingNoteManager::syncByIngredientIds([$stockItem->id], $userId);
+        return [$stockItem->id];
+    }
+
+    private static function deductRecipeItems(
+        Menu $menu,
+        int $qty,
+        string $reason,
+        ?int $userId,
+    ): array {
+        $recipeItems = $menu->recipeIngredients()->get();
+
+        if ($recipeItems->isEmpty()) {
+            return [];
+        }
+
+        $ingredientIds = $recipeItems->pluck('id')->all();
+        /** @var Collection<int, Ingredient> $ingredients */
+        $ingredients = Ingredient::query()
+            ->whereIn('id', $ingredientIds)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        foreach ($recipeItems as $recipeIngredient) {
+            $ingredient = $ingredients->get($recipeIngredient->id);
+            abort_if(! $ingredient || ! $ingredient->is_active, 422, "Bahan baku {$recipeIngredient->name} tidak aktif.");
+
+            $requiredQty = round((float) $recipeIngredient->pivot->qty_per_portion * $qty, 2);
+            abort_if(
+                (float) $ingredient->current_stock < $requiredQty,
+                422,
+                "Stok bahan baku {$ingredient->name} tidak cukup untuk menu {$menu->name}.",
+            );
+        }
+
+        foreach ($recipeItems as $recipeIngredient) {
+            $ingredient = $ingredients->get($recipeIngredient->id);
+            $requiredQty = round((float) $recipeIngredient->pivot->qty_per_portion * $qty, 2);
+            $stockBefore = (float) $ingredient->current_stock;
+            $stockAfter = round($stockBefore - $requiredQty, 2);
+
+            $ingredient->update([
+                'current_stock' => $stockAfter,
+            ]);
+
+            IngredientStockMovement::query()->create([
+                'ingredient_id' => $ingredient->id,
+                'movement_type' => 'ORDER_OUT',
+                'qty_delta' => -$requiredQty,
+                'stock_before' => $stockBefore,
+                'stock_after' => $stockAfter,
+                'reason' => $reason,
+                'created_by' => $userId,
+            ]);
+        }
+
+        return $ingredientIds;
+    }
+
+    private static function restoreRecipeItems(
+        Menu $menu,
+        int $qty,
+        string $reason,
+        ?int $userId,
+    ): array {
+        $recipeItems = $menu->recipeIngredients()->get();
+        if ($recipeItems->isEmpty()) {
+            return [];
+        }
+
+        $ingredientIds = $recipeItems->pluck('id')->all();
+        $ingredients = Ingredient::query()
+            ->whereIn('id', $ingredientIds)
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        foreach ($recipeItems as $recipeIngredient) {
+            $ingredient = $ingredients->get($recipeIngredient->id);
+            if (! $ingredient) {
+                continue;
+            }
+
+            $restoreQty = round((float) $recipeIngredient->pivot->qty_per_portion * $qty, 2);
+            $stockBefore = (float) $ingredient->current_stock;
+            $stockAfter = round($stockBefore + $restoreQty, 2);
+
+            $ingredient->update([
+                'current_stock' => $stockAfter,
+            ]);
+
+            IngredientStockMovement::query()->create([
+                'ingredient_id' => $ingredient->id,
+                'movement_type' => 'ORDER_RESTORE',
+                'qty_delta' => $restoreQty,
+                'stock_before' => $stockBefore,
+                'stock_after' => $stockAfter,
+                'reason' => $reason,
+                'created_by' => $userId,
+            ]);
+        }
+
+        return $ingredientIds;
     }
 }

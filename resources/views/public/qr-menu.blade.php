@@ -1811,7 +1811,7 @@
 
             const readyMenusCount = allMenus().filter((menu) => {
                 const options = Array.isArray(menu.options) ? menu.options : [];
-                const optionReady = !options.length || options.some((option) => option.is_available && option.is_active);
+                const optionReady = !options.length || options.some((option) => option.is_available && option.is_active && option.is_stock_available);
                 return optionReady;
             }).length;
             const unavailableMenusCount = Math.max(allMenus().length - readyMenusCount, 0);
@@ -1835,7 +1835,7 @@
                 const selectedTotal = hasOptions
                     ? options.reduce((sum, option) => sum + currentQty(menu.id, option.id), 0)
                     : currentQty(menu.id);
-                const canOrder = !hasOptions || options.some((option) => option.is_available && option.is_active);
+                const canOrder = !hasOptions || options.some((option) => option.is_available && option.is_active && option.is_stock_available);
 
                 const card = document.createElement('article');
                 card.className = `menu-card${canOrder ? '' : ' disabled'}`;
@@ -1902,7 +1902,7 @@
                 }
 
                 if (hasOptions) {
-                    const selectableOptions = options.filter((option) => option.is_available && option.is_active);
+                    const selectableOptions = options.filter((option) => option.is_available && option.is_active && option.is_stock_available);
                     const selectedOptions = options.filter((option) => currentQty(menu.id, option.id) > 0);
                     const activeOptionId = state.activeOptionByMenu[menu.id]
                         ?? selectableOptions[0]?.id
@@ -1926,7 +1926,7 @@
                     selector.className = 'variant-selector';
 
                     options.forEach((option) => {
-                        const optionAvailable = option.is_available && option.is_active;
+                        const optionAvailable = option.is_available && option.is_active && option.is_stock_available;
                         const chip = document.createElement('button');
                         chip.type = 'button';
                         chip.className = `variant-chip${option.id === activeOptionId ? ' active' : ''}${optionAvailable ? '' : ' unavailable'}`;
@@ -1942,7 +1942,7 @@
                     composer.appendChild(selector);
 
                     if (activeOption) {
-                        const activeOptionAvailable = activeOption.is_available && activeOption.is_active;
+                        const activeOptionAvailable = activeOption.is_available && activeOption.is_active && activeOption.is_stock_available;
                         const panel = document.createElement('div');
                         panel.className = 'variant-panel';
 
