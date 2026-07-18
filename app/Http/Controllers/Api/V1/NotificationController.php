@@ -353,7 +353,7 @@ class NotificationController extends Controller
             $channels[] = self::CHANNEL_WAITER;
         }
 
-        if ($user->can('orders.create')) {
+        if ($user->can('qr-orders.approve') || $user->can('orders.create')) {
             $channels[] = self::CHANNEL_QR;
         }
 

@@ -140,10 +140,13 @@ Route::prefix('v1')->group(function () {
         Route::post('/bills/{bill}/void', [BillController::class, 'void'])->middleware('permission:bills.void');
         Route::post('/bills/{bill}/transfer-table', [BillController::class, 'transferTable'])->middleware('permission:bills.transfer');
 
-        Route::middleware('permission:orders.create')->group(function () {
+        Route::middleware('permission:qr-orders.approve')->group(function () {
             Route::get('/qr-orders', [QrMenuController::class, 'index']);
             Route::post('/qr-orders/{qrOrder}/approve', [QrMenuController::class, 'approve']);
             Route::post('/qr-orders/{qrOrder}/reject', [QrMenuController::class, 'reject']);
+        });
+
+        Route::middleware('permission:orders.create')->group(function () {
             Route::post('/bills/{bill}/orders', [OrderController::class, 'store']);
         });
 
