@@ -15,6 +15,15 @@ class DemoDataSeeder extends Seeder
     {
         $timestamp = now();
 
+        DB::table('settings')->updateOrInsert(
+            ['key' => 'restaurant_name'],
+            ['value' => 'Warung Babeh', 'group' => 'restaurant', 'created_at' => $timestamp, 'updated_at' => $timestamp],
+        );
+        DB::table('settings')->updateOrInsert(
+            ['key' => 'restaurant_address'],
+            ['value' => 'Jl. Contoh No. 1, Jakarta', 'group' => 'restaurant', 'created_at' => $timestamp, 'updated_at' => $timestamp],
+        );
+
         $owner = User::updateOrCreate(
             ['username' => 'owner'],
             [
@@ -113,14 +122,45 @@ class DemoDataSeeder extends Seeder
             ['code' => 'BHN-006', 'name' => 'Gula Cair', 'unit' => 'gelas', 'current_stock' => 220, 'minimum_stock' => 40, 'purchase_price' => 1200, 'last_purchase_price' => 1200, 'notes' => 'Pemanis minuman', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
             ['code' => 'BHN-007', 'name' => 'Jeruk Peras', 'unit' => 'gelas', 'current_stock' => 90, 'minimum_stock' => 20, 'purchase_price' => 3500, 'last_purchase_price' => 3500, 'notes' => 'Untuk es jeruk', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
             ['code' => 'BHN-008', 'name' => 'Es Batu', 'unit' => 'gelas', 'current_stock' => 300, 'minimum_stock' => 60, 'purchase_price' => 300, 'last_purchase_price' => 300, 'notes' => 'Untuk minuman dingin', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-009', 'name' => 'Ayam Paha Atas', 'unit' => 'potong', 'current_stock' => 40, 'minimum_stock' => 10, 'purchase_price' => 11000, 'last_purchase_price' => 11000, 'notes' => 'Varian ayam bakar paha atas', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-010', 'name' => 'Ayam Dada', 'unit' => 'potong', 'current_stock' => 35, 'minimum_stock' => 10, 'purchase_price' => 12000, 'last_purchase_price' => 12000, 'notes' => 'Varian ayam bakar dada', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+            ['code' => 'BHN-011', 'name' => 'Ayam Sayap', 'unit' => 'potong', 'current_stock' => 30, 'minimum_stock' => 8, 'purchase_price' => 9000, 'last_purchase_price' => 9000, 'notes' => 'Varian ayam bakar sayap', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
         ], ['code'], ['name', 'unit', 'current_stock', 'minimum_stock', 'purchase_price', 'last_purchase_price', 'notes', 'is_active', 'updated_at']);
 
         $ingredients = DB::table('ingredients')->pluck('id', 'code');
         DB::table('menus')->where('sku', 'MKN-001')->update(['stock_item_id' => $ingredients['BHN-001'], 'stock_deduction_qty' => 1]);
-        DB::table('menus')->where('sku', 'MKN-009')->update(['stock_item_id' => $ingredients['BHN-002'], 'stock_deduction_qty' => 1]);
+        DB::table('menus')->where('sku', 'MKN-009')->update(['stock_item_id' => null, 'stock_deduction_qty' => 1]);
         DB::table('menus')->where('sku', 'MKN-010')->update(['stock_item_id' => $ingredients['BHN-002'], 'stock_deduction_qty' => 1]);
         DB::table('menus')->where('sku', 'MNM-001')->update(['stock_item_id' => $ingredients['BHN-005'], 'stock_deduction_qty' => 1]);
         DB::table('menus')->where('sku', 'MNM-003')->update(['stock_item_id' => $ingredients['BHN-007'], 'stock_deduction_qty' => 1]);
+
+        $ayamBakarId = DB::table('menus')->where('sku', 'MKN-009')->value('id');
+
+        DB::table('menu_ingredients')->updateOrInsert(
+            ['menu_id' => $ayamBakarId, 'ingredient_id' => $ingredients['BHN-001']],
+            ['qty_per_portion' => 1, 'created_at' => $timestamp, 'updated_at' => $timestamp],
+        );
+
+        foreach ([
+            ['name' => 'Paha Atas', 'stock_code' => 'BHN-009', 'sort_order' => 1],
+            ['name' => 'Dada', 'stock_code' => 'BHN-010', 'sort_order' => 2],
+            ['name' => 'Sayap', 'stock_code' => 'BHN-011', 'sort_order' => 3],
+        ] as $option) {
+            DB::table('menu_options')->updateOrInsert(
+                ['menu_id' => $ayamBakarId, 'name' => $option['name']],
+                [
+                    'stock_item_id' => $ingredients[$option['stock_code']],
+                    'stock_deduction_qty' => 1,
+                    'price_delta' => 0,
+                    'is_available' => true,
+                    'is_stock_available' => true,
+                    'is_active' => true,
+                    'sort_order' => $option['sort_order'],
+                    'created_at' => $timestamp,
+                    'updated_at' => $timestamp,
+                ],
+            );
+        }
 
     }
 

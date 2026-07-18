@@ -228,7 +228,7 @@ class ExampleTest extends TestCase
         $this->seed();
 
         $owner = User::query()->where('username', 'owner')->firstOrFail();
-        $menu = Menu::query()->where('sku', 'MKN-009')->firstOrFail();
+        $menu = Menu::query()->whereNotNull('stock_item_id')->firstOrFail();
         $stockItem = Ingredient::query()->findOrFail($menu->stock_item_id);
 
         $this->actingAs($owner, 'sanctum')
@@ -2232,6 +2232,39 @@ class ExampleTest extends TestCase
         $this->actingAs($waiter, 'sanctum')
             ->getJson('/api/v1/qr-orders?status=PENDING')
             ->assertForbidden();
+    }
+
+    /**
+     * Authorization must follow the database even when Spatie's registrar
+     * was warmed before a new role permission was assigned.
+     */
+    public function test_qr_order_permission_is_not_blocked_by_stale_registrar_cache(): void
+    {
+        $this->seed();
+
+        $waiter = User::query()->where('username', 'waiter01')->firstOrFail();
+        $waiterRoleId = DB::table('roles')->where('name', 'Waiter')->value('id');
+        $permissionId = DB::table('permissions')
+            ->where('name', 'qr-orders.approve')
+            ->where('guard_name', 'web')
+            ->value('id');
+
+        DB::table('role_has_permissions')
+            ->where('role_id', $waiterRoleId)
+            ->where('permission_id', $permissionId)
+            ->delete();
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $this->assertFalse($waiter->fresh()->hasPermissionTo('qr-orders.approve'));
+
+        DB::table('role_has_permissions')->insert([
+            'role_id' => $waiterRoleId,
+            'permission_id' => $permissionId,
+        ]);
+
+        $this->actingAs($waiter, 'sanctum')
+            ->getJson('/api/v1/qr-orders?status=PENDING')
+            ->assertOk();
     }
 
     /**
