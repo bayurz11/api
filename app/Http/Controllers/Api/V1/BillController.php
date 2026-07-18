@@ -12,9 +12,9 @@ use App\Models\Payment;
 use App\Models\Table;
 use App\Support\AuditLogger;
 use App\Support\BillOrderState;
-use App\Support\InventoryManager;
 use App\Support\BillTableManager;
 use App\Support\BillTotals;
+use App\Support\InventoryManager;
 use App\Support\SequenceNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -359,10 +359,10 @@ class BillController extends Controller
     public function split(Request $request, Bill $bill): JsonResponse
     {
         $validated = $request->validate([
-            'items' => ['nullable', 'array', 'min:1'],
+            'items' => ['nullable', 'array', 'min:1', 'max:100'],
             'items.*.bill_item_id' => ['required', 'integer', 'exists:bill_items,id'],
-            'items.*.qty' => ['required', 'integer', 'min:1'],
-            'bill_item_ids' => ['nullable', 'array', 'min:1'],
+            'items.*.qty' => ['required', 'integer', 'min:1', 'max:100'],
+            'bill_item_ids' => ['nullable', 'array', 'min:1', 'max:100'],
             'bill_item_ids.*' => ['required', 'integer', 'exists:bill_items,id'],
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'customer_name' => ['nullable', 'string', 'max:255'],

@@ -14,12 +14,13 @@ use App\Models\Payment;
 use App\Models\Printer;
 use App\Models\QrOrder;
 use App\Models\Reservation;
-use App\Models\ShoppingNote;
 use App\Models\Setting;
+use App\Models\ShoppingNote;
 use App\Models\Table;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
@@ -233,6 +234,7 @@ class ExampleTest extends TestCase
         $this->actingAs($owner, 'sanctum')
             ->postJson("/api/v1/ingredients/{$stockItem->id}/adjust-stock", [
                 'qty_delta' => -(float) $stockItem->current_stock,
+                'adjustment_type' => 'MANUAL_SUBTRACT',
                 'reason' => 'Tes stok habis',
             ])
             ->assertOk();
@@ -257,6 +259,7 @@ class ExampleTest extends TestCase
         $this->actingAs($owner, 'sanctum')
             ->postJson("/api/v1/ingredients/{$stockItem->id}/adjust-stock", [
                 'qty_delta' => (float) $stockItem->minimum_stock + 3,
+                'adjustment_type' => 'RESTOCK',
                 'reason' => 'Tes stok masuk',
                 'unit_cost' => 45000,
             ])
@@ -1319,6 +1322,7 @@ class ExampleTest extends TestCase
         $this->actingAs($owner, 'sanctum')
             ->postJson("/api/v1/ingredients/{$ingredientId}/adjust-stock", [
                 'qty_delta' => -250,
+                'adjustment_type' => 'MANUAL_SUBTRACT',
                 'reason' => 'Sampling produksi',
             ])
             ->assertOk()
@@ -1988,6 +1992,7 @@ class ExampleTest extends TestCase
         $tableTwo = Table::query()->where('code', 'T02')->firstOrFail();
         $food = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
         $drink = Menu::query()->where('sku', 'MNM-001')->firstOrFail();
+        $food->update(['name' => '=HYPERLINK("https://example.invalid","menu")']);
 
         $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
             'bill_type' => 'DINE_IN',
@@ -2036,7 +2041,7 @@ class ExampleTest extends TestCase
             ->update(['paid_at' => now()->subDay()]);
 
         $reportResponse = $this->actingAs($owner, 'sanctum')
-            ->getJson('/api/v1/reports/sales-summary?date_from=' . now()->subDay()->toDateString() . '&date_to=' . now()->toDateString());
+            ->getJson('/api/v1/reports/sales-summary?date_from='.now()->subDay()->toDateString().'&date_to='.now()->toDateString());
 
         $reportResponse
             ->assertOk()
@@ -2060,7 +2065,7 @@ class ExampleTest extends TestCase
             ->assertJsonPath('top_customers.0.customer_name', 'Pelanggan umum');
 
         $exportResponse = $this->actingAs($owner, 'sanctum')
-            ->get('/api/v1/reports/sales-summary/export?date_from=' . now()->subDay()->toDateString() . '&date_to=' . now()->toDateString());
+            ->get('/api/v1/reports/sales-summary/export?date_from='.now()->subDay()->toDateString().'&date_to='.now()->toDateString());
 
         $exportResponse
             ->assertOk()
@@ -2072,12 +2077,13 @@ class ExampleTest extends TestCase
         $this->assertStringContainsString('section,key,value', $exportContent);
         $this->assertStringContainsString('summary,gross_sales,64000.00', $exportContent);
         $this->assertStringContainsString('category_sales,Makanan', $exportContent);
-        $this->assertStringContainsString('daily_trend,' . now()->toDateString(), $exportContent);
+        $this->assertStringContainsString('daily_trend,'.now()->toDateString(), $exportContent);
         $this->assertStringContainsString('hourly_trend,', $exportContent);
         $this->assertStringContainsString('top_customers,"Pelanggan umum"', $exportContent);
+        $this->assertStringContainsString("top_items,\"'=HYPERLINK", $exportContent);
 
         $excelResponse = $this->actingAs($owner, 'sanctum')
-            ->get('/api/v1/reports/sales-summary/export-excel?date_from=' . now()->subDay()->toDateString() . '&date_to=' . now()->toDateString());
+            ->get('/api/v1/reports/sales-summary/export-excel?date_from='.now()->subDay()->toDateString().'&date_to='.now()->toDateString());
 
         $excelResponse
             ->assertOk()
@@ -2151,6 +2157,12 @@ class ExampleTest extends TestCase
             ->assertJsonPath('bill.bill_type', 'DINE_IN')
             ->assertJsonPath('order.source', 'QR');
 
+        $this->actingAs($waiter, 'sanctum')
+            ->postJson("/api/v1/qr-orders/{$qrOrderId}/approve")
+            ->assertStatus(422);
+
+        $this->assertSame(1, QrOrder::query()->findOrFail($qrOrderId)->approvedOrder()->count());
+
         $this->getJson("/api/v1/qr-menu/orders/{$guestToken}")
             ->assertOk()
             ->assertJsonPath('data.status', 'APPROVED');
@@ -2179,13 +2191,33 @@ class ExampleTest extends TestCase
             'menu_id' => $drink->id,
             'qty' => 2,
         ]);
+
+        $createdAudit = DB::table('audit_logs')
+            ->where('action', 'qr_order.created')
+            ->where('entity_id', $qrOrderId)
+            ->value('after_data');
+        $this->assertIsString($createdAudit);
+        $this->assertStringNotContainsString('081234000000', $createdAudit);
+        $this->assertStringNotContainsString($guestToken, $createdAudit);
+    }
+
+    public function test_qr_checkout_rejects_oversized_cart(): void
+    {
+        $this->seed();
+
+        $menu = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+        $items = array_fill(0, 51, ['menu_id' => $menu->id, 'qty' => 1]);
+
+        $this->postJson('/api/v1/qr-menu/T01/checkout', [
+            'customer_name' => 'Guest QR',
+            'items' => $items,
+        ])->assertUnprocessable()->assertJsonValidationErrors(['items']);
     }
 
     /**
-     * Keep QR approval available during a rolling deployment where the
-     * dedicated permission has not reached production yet.
+     * Missing dedicated QR permission must fail closed.
      */
-    public function test_qr_orders_use_operational_permission_as_deployment_fallback(): void
+    public function test_qr_orders_require_dedicated_permission(): void
     {
         $this->seed();
 
@@ -2199,7 +2231,7 @@ class ExampleTest extends TestCase
 
         $this->actingAs($waiter, 'sanctum')
             ->getJson('/api/v1/qr-orders?status=PENDING')
-            ->assertOk();
+            ->assertForbidden();
     }
 
     /**
@@ -2484,5 +2516,4 @@ class ExampleTest extends TestCase
         ])
             ->assertStatus(422);
     }
-
 }

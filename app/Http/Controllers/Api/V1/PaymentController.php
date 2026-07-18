@@ -31,8 +31,8 @@ class PaymentController extends Controller
     {
         $validated = $request->validate([
             'payment_method' => ['required', 'string', Rule::in(self::PAYMENT_METHODS)],
-            'amount' => ['required', 'numeric', 'min:1'],
-            'reference_no' => ['nullable', 'string'],
+            'amount' => ['required', 'numeric', 'decimal:0,2', 'min:1', 'max:9999999999.99'],
+            'reference_no' => ['nullable', 'string', 'max:255'],
         ]);
 
         $user = $request->user();
@@ -40,7 +40,7 @@ class PaymentController extends Controller
         $payment = DB::transaction(function () use ($bill, $validated, $user) {
             $bill = Bill::query()->lockForUpdate()->findOrFail($bill->id);
             $this->ensureBillAcceptsPayment($bill);
-            $this->ensureAmountDoesNotOverpay($bill, (float) $validated['amount']);
+            $this->ensureAmountDoesNotOverpay($bill, $this->toMinorUnits($validated['amount']));
 
             $payment = Payment::query()->create([
                 'bill_id' => $bill->id,
@@ -82,10 +82,10 @@ class PaymentController extends Controller
     public function split(Request $request, Bill $bill): JsonResponse
     {
         $validated = $request->validate([
-            'payments' => ['required', 'array', 'min:2'],
+            'payments' => ['required', 'array', 'min:2', 'max:20'],
             'payments.*.payment_method' => ['required', 'string', Rule::in(self::PAYMENT_METHODS)],
-            'payments.*.amount' => ['required', 'numeric', 'min:1'],
-            'payments.*.reference_no' => ['nullable', 'string'],
+            'payments.*.amount' => ['required', 'numeric', 'decimal:0,2', 'min:1', 'max:9999999999.99'],
+            'payments.*.reference_no' => ['nullable', 'string', 'max:255'],
         ]);
 
         $user = $request->user();
@@ -94,10 +94,10 @@ class PaymentController extends Controller
             $bill = Bill::query()->lockForUpdate()->findOrFail($bill->id);
             $this->ensureBillAcceptsPayment($bill);
 
-            $splitTotal = collect($validated['payments'])
-                ->sum(fn (array $payment) => (float) $payment['amount']);
+            $splitTotalMinor = collect($validated['payments'])
+                ->sum(fn (array $payment) => $this->toMinorUnits($payment['amount']));
 
-            $this->ensureAmountDoesNotOverpay($bill, $splitTotal);
+            $this->ensureAmountDoesNotOverpay($bill, $splitTotalMinor);
 
             $createdPayments = collect();
 
@@ -130,7 +130,7 @@ class PaymentController extends Controller
                 entityId: $bill->id,
                 after: [
                     'payments_count' => $createdPayments->count(),
-                    'split_total' => $splitTotal,
+                    'split_total' => $splitTotalMinor / 100,
                 ],
             );
 
@@ -147,12 +147,12 @@ class PaymentController extends Controller
 
     public function close(Request $request, Bill $bill): JsonResponse
     {
-        abort_if((float) $bill->balance_due > 0, 422, 'Bill belum lunas.');
-
         $user = $request->user();
 
         DB::transaction(function () use ($bill, $user) {
             $bill = Bill::query()->lockForUpdate()->findOrFail($bill->id);
+            $bill = BillTotals::recalculate($bill);
+            abort_if($this->toMinorUnits($bill->balance_due) > 0, 422, 'Bill belum lunas.');
 
             $bill->update([
                 'status' => 'PAID',
@@ -184,12 +184,11 @@ class PaymentController extends Controller
             'reason' => ['required', 'string', 'max:255'],
         ]);
 
-        abort_if($payment->status === 'VOID', 422, 'Payment sudah di-void.');
-
         $user = $request->user();
 
         DB::transaction(function () use ($payment, $validated, $user) {
             $payment = Payment::query()->lockForUpdate()->findOrFail($payment->id);
+            abort_if($payment->status === 'VOID', 422, 'Payment sudah di-void.');
             $bill = Bill::query()->lockForUpdate()->findOrFail($payment->bill_id);
 
             $payment->update([
@@ -229,8 +228,8 @@ class PaymentController extends Controller
         $validated = $request->validate([
             'reason' => ['required', 'string', 'max:255'],
             'payment_method' => ['required', 'string', Rule::in(self::PAYMENT_METHODS)],
-            'reference_no' => ['nullable', 'string'],
-            'amount' => ['nullable', 'numeric', 'min:1'],
+            'reference_no' => ['nullable', 'string', 'max:255'],
+            'amount' => ['nullable', 'numeric', 'decimal:0,2', 'min:1', 'max:9999999999.99'],
         ]);
 
         $user = $request->user();
@@ -238,12 +237,16 @@ class PaymentController extends Controller
         $refundPayment = DB::transaction(function () use ($bill, $validated, $user) {
             $bill = Bill::query()->lockForUpdate()->findOrFail($bill->id);
 
-            abort_if((float) $bill->paid_total <= 0, 422, 'Bill tidak memiliki pembayaran yang dapat direfund.');
+            $paidTotalMinor = $this->toMinorUnits($bill->paid_total);
+            abort_if($paidTotalMinor <= 0, 422, 'Bill tidak memiliki pembayaran yang dapat direfund.');
             abort_if($bill->status === 'REFUND', 422, 'Bill sudah direfund.');
 
-            $refundAmount = (float) ($validated['amount'] ?? $bill->paid_total);
+            $refundAmountMinor = isset($validated['amount'])
+                ? $this->toMinorUnits($validated['amount'])
+                : $paidTotalMinor;
 
-            abort_if($refundAmount > (float) $bill->paid_total, 422, 'Nominal refund melebihi pembayaran bersih.');
+            abort_if($refundAmountMinor > $paidTotalMinor, 422, 'Nominal refund melebihi pembayaran bersih.');
+            $refundAmount = $refundAmountMinor / 100;
 
             $refundPayment = Payment::query()->create([
                 'bill_id' => $bill->id,
@@ -299,8 +302,17 @@ class PaymentController extends Controller
         abort_if(! in_array($bill->status, ['ORDERING', 'READY_TO_PAY', 'SERVED', 'PARTIALLY_PAID'], true), 422, 'Status bill belum siap menerima pembayaran.');
     }
 
-    private function ensureAmountDoesNotOverpay(Bill $bill, float $amount): void
+    private function ensureAmountDoesNotOverpay(Bill $bill, int $amountMinor): void
     {
-        abort_if($amount > (float) $bill->balance_due, 422, 'Nominal pembayaran melebihi sisa tagihan.');
+        abort_if(
+            $amountMinor > $this->toMinorUnits($bill->balance_due),
+            422,
+            'Nominal pembayaran melebihi sisa tagihan.',
+        );
+    }
+
+    private function toMinorUnits(mixed $amount): int
+    {
+        return (int) round((float) $amount * 100);
     }
 }

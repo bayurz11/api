@@ -18,6 +18,7 @@ use App\Support\InventoryManager;
 use App\Support\SequenceNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -80,12 +81,12 @@ class QrMenuController extends Controller
         $validated = $request->validate([
             'customer_name' => ['nullable', 'string', 'max:255'],
             'customer_phone' => ['nullable', 'string', 'max:50'],
-            'guest_count' => ['nullable', 'integer', 'min:1'],
+            'guest_count' => ['nullable', 'integer', 'min:1', 'max:100'],
             'notes' => ['nullable', 'string', 'max:1000'],
-            'items' => ['required', 'array', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:50'],
             'items.*.menu_id' => ['required', 'integer', 'exists:menus,id'],
             'items.*.menu_option_id' => ['nullable', 'integer', 'exists:menu_options,id'],
-            'items.*.qty' => ['required', 'integer', 'min:1'],
+            'items.*.qty' => ['required', 'integer', 'min:1', 'max:100'],
             'items.*.notes' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -203,14 +204,22 @@ class QrMenuController extends Controller
 
     public function approve(Request $request, QrOrder $qrOrder): JsonResponse
     {
-        abort_if($qrOrder->status !== 'PENDING', 422, 'QR order sudah diproses.');
-
         $user = $request->user();
 
         [$qrOrder, $bill, $order] = DB::transaction(function () use ($qrOrder, $user) {
-            $table = Table::query()->findOrFail($qrOrder->table_id);
+            $qrOrder = QrOrder::query()
+                ->lockForUpdate()
+                ->findOrFail($qrOrder->id);
+            abort_if($qrOrder->status !== 'PENDING', 422, 'QR order sudah diproses.');
+
+            // Locking the table serializes approvals that target the same table,
+            // preventing duplicate active bills from concurrent requests.
+            $table = Table::query()
+                ->lockForUpdate()
+                ->findOrFail($qrOrder->table_id);
 
             $bill = Bill::query()
+                ->lockForUpdate()
                 ->where('table_id', $table->id)
                 ->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID', 'SERVED'])
                 ->latest('id')
@@ -330,24 +339,31 @@ class QrMenuController extends Controller
             'reason' => ['required', 'string', 'max:255'],
         ]);
 
-        abort_if($qrOrder->status !== 'PENDING', 422, 'QR order sudah diproses.');
+        $qrOrder = DB::transaction(function () use ($qrOrder, $validated, $request) {
+            $qrOrder = QrOrder::query()
+                ->lockForUpdate()
+                ->findOrFail($qrOrder->id);
+            abort_if($qrOrder->status !== 'PENDING', 422, 'QR order sudah diproses.');
 
-        $qrOrder->items()->update(['status' => 'REJECTED']);
-        $qrOrder->update([
-            'status' => 'REJECTED',
-            'rejected_at' => now(),
-            'notes' => trim(($qrOrder->notes ? $qrOrder->notes . PHP_EOL : '') . 'Reject: ' . $validated['reason']),
-        ]);
+            $qrOrder->items()->update(['status' => 'REJECTED']);
+            $qrOrder->update([
+                'status' => 'REJECTED',
+                'rejected_at' => now(),
+                'notes' => trim(($qrOrder->notes ? $qrOrder->notes.PHP_EOL : '').'Reject: '.$validated['reason']),
+            ]);
 
-        AuditLogger::log(
-            userId: $request->user()->id,
-            roleName: $request->user()->getRoleNames()->first(),
-            action: 'qr_order.rejected',
-            entityType: 'qr_order',
-            entityId: $qrOrder->id,
-            after: ['status' => 'REJECTED'],
-            reason: $validated['reason'],
-        );
+            AuditLogger::log(
+                userId: $request->user()->id,
+                roleName: $request->user()->getRoleNames()->first(),
+                action: 'qr_order.rejected',
+                entityType: 'qr_order',
+                entityId: $qrOrder->id,
+                after: ['status' => 'REJECTED'],
+                reason: $validated['reason'],
+            );
+
+            return $qrOrder;
+        });
 
         return response()->json([
             'message' => 'QR order berhasil ditolak.',
@@ -367,7 +383,7 @@ class QrMenuController extends Controller
         return $table;
     }
 
-    private function resolveMenuOption(Menu $menu, \Illuminate\Support\Collection $options, ?int $optionId): ?MenuOption
+    private function resolveMenuOption(Menu $menu, Collection $options, ?int $optionId): ?MenuOption
     {
         $configuredOptions = $menu->options->where('is_active', true)->values();
 

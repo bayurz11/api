@@ -1,25 +1,25 @@
 <?php
 
-use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\AuditLogController;
+use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BarController;
 use App\Http\Controllers\Api\V1\BillController;
 use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\IngredientController;
 use App\Http\Controllers\Api\V1\KitchenController;
+use App\Http\Controllers\Api\V1\MenuCategoryController;
 use App\Http\Controllers\Api\V1\MenuController;
 use App\Http\Controllers\Api\V1\MenuIngredientController;
-use App\Http\Controllers\Api\V1\MenuCategoryController;
-use App\Http\Controllers\Api\V1\IngredientController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrderItemStatusController;
 use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\PrintController;
 use App\Http\Controllers\Api\V1\QrMenuController;
-use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ReminderSettingsController;
+use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ReservationController;
 use App\Http\Controllers\Api\V1\RestaurantProfileController;
 use App\Http\Controllers\Api\V1\ShoppingNoteController;
@@ -31,7 +31,7 @@ Route::prefix('v1')->group(function () {
     Route::get('/health', HealthController::class);
     Route::get('/restaurant-profile/logo', [RestaurantProfileController::class, 'logo']);
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
-    Route::get('/qr-menu/{tableCode}', [QrMenuController::class, 'menu']);
+    Route::get('/qr-menu/{tableCode}', [QrMenuController::class, 'menu'])->middleware('throttle:qr-menu');
     Route::post('/qr-menu/{tableCode}/checkout', [QrMenuController::class, 'checkout'])->middleware('throttle:qr-checkout');
     Route::get('/qr-menu/orders/{guestToken}', [QrMenuController::class, 'status'])->middleware('throttle:qr-status');
 

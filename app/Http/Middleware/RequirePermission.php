@@ -14,19 +14,9 @@ class RequirePermission
         $user = $request->user();
         $hasOwnerAdminFallback = in_array($permission, ['settings.view', 'settings.manage'], true)
             && $user?->hasAnyRole(['Owner', 'Admin']);
-        $fallbackPermissions = match ($permission) {
-            // Keep QR approval usable while older production databases are
-            // being upgraded with the dedicated permission.
-            'qr-orders.approve' => ['orders.create'],
-            default => [],
-        };
-
         abort_unless(
             $hasOwnerAdminFallback
-                || $this->hasPermission($user, $permission)
-                || collect($fallbackPermissions)->contains(
-                    fn (string $fallback) => $this->hasPermission($user, $fallback),
-                ),
+                || $this->hasPermission($user, $permission),
             403,
             'Anda tidak memiliki hak akses untuk aksi ini.',
         );

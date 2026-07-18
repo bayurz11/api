@@ -10,8 +10,8 @@ use App\Support\AuditLogger;
 use App\Support\InventoryManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Throwable;
@@ -58,16 +58,16 @@ class MenuController extends Controller
         $validated = $request->validate([
             'category_id' => ['required', 'integer', 'exists:menu_categories,id'],
             'name' => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string'],
-            'image_url' => ['nullable', 'string'],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'image_url' => $this->menuImageRules(),
             'price' => ['required', 'numeric', 'min:0'],
             'station_type' => ['required', 'string', Rule::in(self::STATION_TYPES)],
             'stock_item_id' => ['nullable', 'integer', 'exists:ingredients,id'],
             'stock_deduction_qty' => ['nullable', 'numeric', 'gt:0'],
             'is_available' => ['nullable', 'boolean'],
             'is_active' => ['nullable', 'boolean'],
-            'options' => ['nullable', 'array'],
-            'recipe_ingredients' => ['nullable', 'array'],
+            'options' => ['nullable', 'array', 'max:100'],
+            'recipe_ingredients' => ['nullable', 'array', 'max:100'],
             'recipe_ingredients.*.ingredient_id' => ['required', 'integer', 'distinct', 'exists:ingredients,id'],
             'recipe_ingredients.*.qty_per_portion' => ['required', 'numeric', 'gt:0'],
             'options.*.name' => ['required', 'string', 'max:255'],
@@ -136,16 +136,16 @@ class MenuController extends Controller
         $validated = $request->validate([
             'category_id' => ['sometimes', 'required', 'integer', 'exists:menu_categories,id'],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
-            'description' => ['nullable', 'string'],
-            'image_url' => ['nullable', 'string'],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'image_url' => $this->menuImageRules(),
             'price' => ['sometimes', 'numeric', 'min:0'],
             'station_type' => ['sometimes', 'required', 'string', Rule::in(self::STATION_TYPES)],
             'stock_item_id' => ['nullable', 'integer', 'exists:ingredients,id'],
             'stock_deduction_qty' => ['nullable', 'numeric', 'gt:0'],
             'is_available' => ['sometimes', 'boolean'],
             'is_active' => ['sometimes', 'boolean'],
-            'options' => ['nullable', 'array'],
-            'recipe_ingredients' => ['nullable', 'array'],
+            'options' => ['nullable', 'array', 'max:100'],
+            'recipe_ingredients' => ['nullable', 'array', 'max:100'],
             'recipe_ingredients.*.ingredient_id' => ['required', 'integer', 'distinct', 'exists:ingredients,id'],
             'recipe_ingredients.*.qty_per_portion' => ['required', 'numeric', 'gt:0'],
             'options.*.id' => ['nullable', 'integer', 'exists:menu_options,id'],
@@ -309,6 +309,7 @@ class MenuController extends Controller
                 $option = $menu->options()->whereKey($optionId)->firstOrFail();
                 $option->update($attributes);
                 $keptIds[] = $option->id;
+
                 continue;
             }
 
@@ -365,6 +366,35 @@ class MenuController extends Controller
         return $validated;
     }
 
+    private function menuImageRules(): array
+    {
+        return [
+            'nullable',
+            'string',
+            'max:3000000',
+            function (string $attribute, mixed $value, \Closure $fail): void {
+                if (! is_string($value) || $value === '') {
+                    return;
+                }
+
+                if (preg_match('#^data:image/(?:png|jpeg|webp);base64,#i', $value) === 1) {
+                    $encoded = substr($value, strpos($value, ',') + 1);
+                    $decoded = base64_decode($encoded, true);
+                    if ($decoded === false || strlen($decoded) > 2 * 1024 * 1024) {
+                        $fail('Ukuran foto menu maksimal 2 MB.');
+                    }
+
+                    return;
+                }
+
+                $scheme = parse_url($value, PHP_URL_SCHEME);
+                if (strlen($value) > 2048 || ! filter_var($value, FILTER_VALIDATE_URL) || ! in_array($scheme, ['http', 'https'], true)) {
+                    $fail('Format foto menu tidak valid.');
+                }
+            },
+        ];
+    }
+
     private function handleWriteFailure(Throwable $exception, Request $request, ?int $menuId, array $payload): JsonResponse
     {
         Log::error('menu.write_failed', [
@@ -372,7 +402,9 @@ class MenuController extends Controller
             'user_id' => $request->user()?->id,
             'path' => $request->path(),
             'message' => $exception->getMessage(),
-            'payload' => $payload,
+            'payload_keys' => array_keys($payload),
+            'options_count' => count($payload['options'] ?? []),
+            'recipe_ingredients_count' => count($payload['recipe_ingredients'] ?? []),
         ]);
 
         $message = 'Terjadi kesalahan pada server.';

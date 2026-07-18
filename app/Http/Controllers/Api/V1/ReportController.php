@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use ZipArchive;
@@ -30,15 +30,18 @@ class ReportController extends Controller
 
         return response()->streamDownload(function () use ($payload) {
             $handle = fopen('php://output', 'w');
+            $writeRow = function (array $row) use ($handle): void {
+                fputcsv($handle, array_map([$this, 'sanitizeSpreadsheetCell'], $row));
+            };
 
-            fputcsv($handle, ['section', 'key', 'value', 'value_2', 'value_3', 'value_4', 'value_5']);
+            $writeRow(['section', 'key', 'value', 'value_2', 'value_3', 'value_4', 'value_5']);
 
             foreach ($payload['summary'] as $key => $value) {
-                fputcsv($handle, ['summary', $key, $value]);
+                $writeRow(['summary', $key, $value]);
             }
 
             foreach ($payload['payment_methods'] as $row) {
-                fputcsv($handle, [
+                $writeRow([
                     'payment_methods',
                     $row['payment_method'],
                     $row['gross_total'],
@@ -50,7 +53,7 @@ class ReportController extends Controller
             }
 
             foreach ($payload['bill_types'] as $row) {
-                fputcsv($handle, [
+                $writeRow([
                     'bill_types',
                     $row['bill_type'],
                     $row['gross_total'],
@@ -59,7 +62,7 @@ class ReportController extends Controller
             }
 
             foreach ($payload['top_items'] as $row) {
-                fputcsv($handle, [
+                $writeRow([
                     'top_items',
                     $row['menu_name'],
                     $row['menu_id'],
@@ -69,7 +72,7 @@ class ReportController extends Controller
             }
 
             foreach ($payload['category_sales'] as $row) {
-                fputcsv($handle, [
+                $writeRow([
                     'category_sales',
                     $row['category_name'],
                     $row['bills_count'],
@@ -79,7 +82,7 @@ class ReportController extends Controller
             }
 
             foreach ($payload['daily_trend'] as $row) {
-                fputcsv($handle, [
+                $writeRow([
                     'daily_trend',
                     $row['date'],
                     $row['gross_total'],
@@ -90,7 +93,7 @@ class ReportController extends Controller
             }
 
             foreach ($payload['top_tables'] as $row) {
-                fputcsv($handle, [
+                $writeRow([
                     'top_tables',
                     $row['table_code'] ?? '-',
                     $row['table_name'] ?? '-',
@@ -100,7 +103,7 @@ class ReportController extends Controller
             }
 
             foreach ($payload['hourly_trend'] as $row) {
-                fputcsv($handle, [
+                $writeRow([
                     'hourly_trend',
                     $row['hour_label'],
                     $row['gross_total'],
@@ -109,7 +112,7 @@ class ReportController extends Controller
             }
 
             foreach ($payload['top_customers'] as $row) {
-                fputcsv($handle, [
+                $writeRow([
                     'top_customers',
                     $row['customer_name'],
                     $row['bills_count'],
@@ -145,6 +148,18 @@ class ReportController extends Controller
             $fileName,
             ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
         )->deleteFileAfterSend(true);
+    }
+
+    private function sanitizeSpreadsheetCell(mixed $value): mixed
+    {
+        if (! is_string($value)) {
+            return $value;
+        }
+
+        // Prevent spreadsheet formulas from customer-controlled export values.
+        return preg_match('/^[\s]*[=+\-@]/u', $value) === 1
+            ? "'".$value
+            : $value;
     }
 
     private function buildSalesSummaryPayload(Request $request): array
@@ -600,7 +615,7 @@ class ReportController extends Controller
 
     private function buildSalesSummaryXlsx(array $payload, string $targetPath): void
     {
-        $archive = new ZipArchive();
+        $archive = new ZipArchive;
         $result = $archive->open($targetPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
         abort_if($result !== true, 500, 'Gagal membuat file Excel laporan penjualan.');
 

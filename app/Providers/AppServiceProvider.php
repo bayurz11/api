@@ -34,6 +34,12 @@ class AppServiceProvider extends ServiceProvider
             );
         });
 
+        RateLimiter::for('qr-menu', function (Request $request) {
+            return Limit::perMinute(30)->by(
+                $request->route('tableCode').'|'.$request->ip(),
+            );
+        });
+
         RateLimiter::for('qr-status', function (Request $request) {
             return Limit::perMinute(30)->by(
                 $request->route('guestToken').'|'.$request->ip(),

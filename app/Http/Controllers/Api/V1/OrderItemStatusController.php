@@ -59,19 +59,19 @@ class OrderItemStatusController extends Controller
             abort_if(! $isServeStatus, 403, 'Waiter hanya boleh menandai item sebagai served.');
         }
 
-        $previousStatus = $orderItem->status;
+        $orderItem = DB::transaction(function () use ($orderItem, $validated, $user) {
+            $orderItem = OrderItem::query()->lockForUpdate()->findOrFail($orderItem->id);
+            $previousStatus = $orderItem->status;
 
-        if ($validated['status'] !== $previousStatus) {
-            $allowedTransitions = self::VALID_TRANSITIONS[$previousStatus] ?? [];
+            if ($validated['status'] !== $previousStatus) {
+                $allowedTransitions = self::VALID_TRANSITIONS[$previousStatus] ?? [];
+                abort_if(
+                    ! in_array($validated['status'], $allowedTransitions, true),
+                    422,
+                    'Transisi status item order tidak valid.',
+                );
+            }
 
-            abort_if(
-                ! in_array($validated['status'], $allowedTransitions, true),
-                422,
-                'Transisi status item order tidak valid.',
-            );
-        }
-
-        DB::transaction(function () use ($orderItem, $validated, $user, $previousStatus) {
             $payload = ['status' => $validated['status']];
 
             if ($validated['status'] === 'ACCEPTED') {
@@ -121,6 +121,8 @@ class OrderItemStatusController extends Controller
                 before: ['status' => $previousStatus],
                 after: ['status' => $validated['status']],
             );
+
+            return $orderItem;
         });
 
         return response()->json([

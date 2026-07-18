@@ -18,8 +18,8 @@ class AuthController extends Controller
     public function login(Request $request): JsonResponse
     {
         $credentials = $request->validate([
-            'username' => ['required', 'string'],
-            'password' => ['required', 'string'],
+            'username' => ['required', 'string', 'max:255'],
+            'password' => ['required', 'string', 'max:255'],
         ]);
 
         $user = User::query()
@@ -81,7 +81,7 @@ class AuthController extends Controller
         $user = $request->user();
 
         if (! $user) {
-            throw new AuthenticationException();
+            throw new AuthenticationException;
         }
 
         $user->currentAccessToken()?->delete();

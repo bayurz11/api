@@ -15,6 +15,7 @@ use App\Support\InventoryManager;
 use App\Support\SequenceNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
@@ -29,10 +30,10 @@ class OrderController extends Controller
     public function store(Request $request, Bill $bill): JsonResponse
     {
         $validated = $request->validate([
-            'items' => ['required', 'array', 'min:1'],
+            'items' => ['required', 'array', 'min:1', 'max:100'],
             'items.*.menu_id' => ['required', 'integer', 'exists:menus,id'],
             'items.*.menu_option_id' => ['nullable', 'integer', 'exists:menu_options,id'],
-            'items.*.qty' => ['required', 'integer', 'min:1'],
+            'items.*.qty' => ['required', 'integer', 'min:1', 'max:100'],
             'items.*.notes' => ['nullable', 'string'],
         ]);
 
@@ -139,7 +140,7 @@ class OrderController extends Controller
         ], 201);
     }
 
-    private function resolveMenuOption(Menu $menu, \Illuminate\Support\Collection $options, ?int $optionId): ?MenuOption
+    private function resolveMenuOption(Menu $menu, Collection $options, ?int $optionId): ?MenuOption
     {
         $configuredOptions = $menu->options->where('is_active', true)->values();
 
