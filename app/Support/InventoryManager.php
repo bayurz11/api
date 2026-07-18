@@ -136,21 +136,37 @@ class InventoryManager
     public static function syncMenuStockAvailability(Menu $menu): void
     {
         $menu->loadMissing(['options', 'recipeIngredients']);
+        $recipeItems = $menu->recipeIngredients;
+        $options = $menu->options;
+        $ingredientIds = collect([
+            $menu->stock_item_id,
+            ...$recipeItems->pluck('id')->all(),
+            ...$options->pluck('stock_item_id')->filter()->all(),
+        ])
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $ingredientStocks = Ingredient::query()
+            ->when(
+                $ingredientIds !== [],
+                fn ($query) => $query->whereIn('id', $ingredientIds),
+                fn ($query) => $query->whereRaw('1 = 0'),
+            )
+            ->get()
+            ->keyBy('id');
 
         $baseStockAvailable = true;
 
         if ($menu->stock_item_id !== null) {
-            $stockItem = Ingredient::query()->find($menu->stock_item_id);
+            $stockItem = $ingredientStocks->get((int) $menu->stock_item_id);
             $requiredQty = max((float) $menu->stock_deduction_qty, 0.01);
             $baseStockAvailable = $stockItem !== null
                 && $stockItem->is_active
                 && (float) $stockItem->current_stock >= $requiredQty;
         } else {
-            $recipeItems = $menu->recipeIngredients;
-            $ingredientStocks = Ingredient::query()
-                ->whereIn('id', $recipeItems->pluck('id')->all())
-                ->get()->keyBy('id');
-
             foreach ($recipeItems as $recipeIngredient) {
                 $ingredient = $ingredientStocks->get($recipeIngredient->id);
                 if (! $ingredient || ! $ingredient->is_active || (float) $ingredient->current_stock < (float) $recipeIngredient->pivot->qty_per_portion) {
@@ -160,11 +176,10 @@ class InventoryManager
             }
         }
 
-        $options = $menu->options;
         foreach ($options as $option) {
             $optionStockAvailable = true;
             if ($option->stock_item_id !== null) {
-                $stockItem = Ingredient::query()->find($option->stock_item_id);
+                $stockItem = $ingredientStocks->get((int) $option->stock_item_id);
                 $requiredQty = max((float) $option->stock_deduction_qty, 0.01);
                 $optionStockAvailable = $stockItem !== null
                     && $stockItem->is_active

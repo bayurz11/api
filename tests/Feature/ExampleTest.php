@@ -1459,6 +1459,160 @@ class ExampleTest extends TestCase
     }
 
     /**
+     * Verify stock linked to menu options controls sold-out state per variant
+     * and cannot be deleted while still used by a variant.
+     */
+    public function test_menu_option_stock_flow_and_protection_work(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $table = Table::query()->where('code', 'T01')->firstOrFail();
+        $category = MenuCategory::query()->where('name', 'Makanan')->firstOrFail();
+
+        $dadaIngredientId = $this->actingAs($owner, 'sanctum')
+            ->postJson('/api/v1/ingredients', [
+                'name' => 'Ayam Dada Stok Test',
+                'unit' => 'potong',
+                'current_stock' => 1,
+                'minimum_stock' => 0,
+                'purchase_price' => 18000,
+                'is_active' => true,
+            ])
+            ->assertCreated()
+            ->json('data.id');
+
+        $sayapIngredientId = $this->actingAs($owner, 'sanctum')
+            ->postJson('/api/v1/ingredients', [
+                'name' => 'Ayam Sayap Stok Test',
+                'unit' => 'potong',
+                'current_stock' => 1,
+                'minimum_stock' => 0,
+                'purchase_price' => 15000,
+                'is_active' => true,
+            ])
+            ->assertCreated()
+            ->json('data.id');
+
+        $menuResponse = $this->actingAs($owner, 'sanctum')->postJson('/api/v1/menus', [
+            'category_id' => $category->id,
+            'name' => 'Ayam Bakar Varian Test',
+            'price' => 32000,
+            'station_type' => 'KITCHEN',
+            'is_available' => true,
+            'is_active' => true,
+            'options' => [
+                [
+                    'name' => 'Dada',
+                    'stock_item_id' => $dadaIngredientId,
+                    'stock_deduction_qty' => 1,
+                    'price_delta' => 0,
+                    'is_available' => true,
+                    'is_active' => true,
+                    'sort_order' => 0,
+                ],
+                [
+                    'name' => 'Sayap',
+                    'stock_item_id' => $sayapIngredientId,
+                    'stock_deduction_qty' => 1,
+                    'price_delta' => 0,
+                    'is_available' => true,
+                    'is_active' => true,
+                    'sort_order' => 1,
+                ],
+            ],
+        ]);
+
+        $menuResponse
+            ->assertCreated()
+            ->assertJsonPath('data.is_stock_available', true)
+            ->assertJsonCount(2, 'data.options');
+
+        $menuId = $menuResponse->json('data.id');
+        $menu = Menu::query()->findOrFail($menuId);
+        $dadaOption = $menu->options()->where('name', 'Dada')->firstOrFail();
+        $sayapOption = $menu->options()->where('name', 'Sayap')->firstOrFail();
+
+        $this->actingAs($owner, 'sanctum')
+            ->deleteJson("/api/v1/ingredients/{$dadaIngredientId}")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Stok barang yang sudah dipakai di menu tidak dapat dihapus.');
+
+        $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'DINE_IN',
+            'table_id' => $table->id,
+            'guest_count' => 2,
+        ])->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/bills/{$billId}/orders", [
+                'items' => [
+                    [
+                        'menu_id' => $menuId,
+                        'menu_option_id' => $dadaOption->id,
+                        'qty' => 1,
+                    ],
+                ],
+            ])
+            ->assertCreated();
+
+        $dadaOption->refresh();
+        $sayapOption->refresh();
+        $menu->refresh();
+
+        $this->assertFalse((bool) $dadaOption->is_stock_available);
+        $this->assertTrue((bool) $sayapOption->is_stock_available);
+        $this->assertTrue((bool) $menu->is_stock_available);
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/bills/{$billId}/orders", [
+                'items' => [
+                    [
+                        'menu_id' => $menuId,
+                        'menu_option_id' => $dadaOption->id,
+                        'qty' => 1,
+                    ],
+                ],
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Varian Dada untuk menu Ayam Bakar Varian Test sedang tidak tersedia.');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/bills/{$billId}/orders", [
+                'items' => [
+                    [
+                        'menu_id' => $menuId,
+                        'menu_option_id' => $sayapOption->id,
+                        'qty' => 1,
+                    ],
+                ],
+            ])
+            ->assertCreated();
+
+        $sayapOption->refresh();
+        $menu->refresh();
+
+        $this->assertFalse((bool) $sayapOption->is_stock_available);
+        $this->assertFalse((bool) $menu->is_stock_available);
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson("/api/v1/ingredients/{$sayapIngredientId}/adjust-stock", [
+                'qty_delta' => 1,
+                'adjustment_type' => 'RESTOCK',
+                'reason' => 'Restock sayap untuk buka varian lagi',
+                'unit_cost' => 15000,
+            ])
+            ->assertOk();
+
+        $sayapOption->refresh();
+        $menu->refresh();
+
+        $this->assertTrue((bool) $sayapOption->is_stock_available);
+        $this->assertTrue((bool) $menu->is_stock_available);
+    }
+
+    /**
      * Verify voiding a bill restores deducted inventory and reopens menu stock.
      */
     public function test_void_bill_restores_inventory_and_menu_stock(): void

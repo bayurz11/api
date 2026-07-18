@@ -27,7 +27,7 @@ class IngredientController extends Controller
     public function index(Request $request): JsonResponse
     {
         $ingredients = Ingredient::query()
-            ->withCount(['menus', 'linkedMenus'])
+            ->withCount(['menus', 'linkedMenus', 'linkedMenuOptions'])
             ->when(
                 $request->filled('search'),
                 fn ($query) => $query->where(function ($innerQuery) use ($request) {
@@ -106,7 +106,7 @@ class IngredientController extends Controller
 
         return response()->json([
             'message' => 'Stok barang berhasil dibuat.',
-            'data' => $ingredient->fresh()->loadCount(['menus', 'linkedMenus']),
+            'data' => $ingredient->fresh()->loadCount(['menus', 'linkedMenus', 'linkedMenuOptions']),
         ], 201);
     }
 
@@ -145,14 +145,16 @@ class IngredientController extends Controller
 
         return response()->json([
             'message' => 'Stok barang berhasil diperbarui.',
-            'data' => $ingredient->fresh()->loadCount(['menus', 'linkedMenus']),
+            'data' => $ingredient->fresh()->loadCount(['menus', 'linkedMenus', 'linkedMenuOptions']),
         ]);
     }
 
     public function destroy(Request $request, Ingredient $ingredient): JsonResponse
     {
         abort_if(
-            $ingredient->menus()->exists() || $ingredient->linkedMenus()->exists(),
+            $ingredient->menus()->exists()
+                || $ingredient->linkedMenus()->exists()
+                || $ingredient->linkedMenuOptions()->exists(),
             422,
             'Stok barang yang sudah dipakai di menu tidak dapat dihapus.',
         );
@@ -252,7 +254,7 @@ class IngredientController extends Controller
 
         return response()->json([
             'message' => 'Stok barang berhasil diperbarui.',
-            'data' => $ingredient->fresh()->loadCount(['menus', 'linkedMenus']),
+            'data' => $ingredient->fresh()->loadCount(['menus', 'linkedMenus', 'linkedMenuOptions']),
         ]);
     }
 

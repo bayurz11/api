@@ -46,6 +46,11 @@ class Ingredient extends Model
         return $this->hasMany(Menu::class, 'stock_item_id');
     }
 
+    public function linkedMenuOptions(): HasMany
+    {
+        return $this->hasMany(MenuOption::class, 'stock_item_id');
+    }
+
     public function stockMovements(): HasMany
     {
         return $this->hasMany(IngredientStockMovement::class);
