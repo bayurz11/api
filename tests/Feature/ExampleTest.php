@@ -21,6 +21,8 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 class ExampleTest extends TestCase
@@ -2177,6 +2179,27 @@ class ExampleTest extends TestCase
             'menu_id' => $drink->id,
             'qty' => 2,
         ]);
+    }
+
+    /**
+     * Keep QR approval available during a rolling deployment where the
+     * dedicated permission has not reached production yet.
+     */
+    public function test_qr_orders_use_operational_permission_as_deployment_fallback(): void
+    {
+        $this->seed();
+
+        Permission::query()
+            ->where('name', 'qr-orders.approve')
+            ->where('guard_name', 'web')
+            ->delete();
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        $waiter = User::query()->where('username', 'waiter01')->firstOrFail();
+
+        $this->actingAs($waiter, 'sanctum')
+            ->getJson('/api/v1/qr-orders?status=PENDING')
+            ->assertOk();
     }
 
     /**
