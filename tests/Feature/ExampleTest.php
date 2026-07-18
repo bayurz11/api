@@ -349,6 +349,7 @@ class ExampleTest extends TestCase
             'id' => $table->id,
             'status' => 'CLEANING',
         ]);
+        $this->assertNotNull($table->fresh()->cleaning_started_at);
 
         $table->update(['status' => 'AVAILABLE']);
 
@@ -365,6 +366,41 @@ class ExampleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('message', 'Meja ini sudah siap digunakan.')
             ->assertJsonPath('data.status', 'AVAILABLE');
+    }
+
+    /**
+     * Verify a cleaning table is released only after the ten-minute window.
+     */
+    public function test_cleaning_table_automatically_becomes_available_after_ten_minutes(): void
+    {
+        $this->seed();
+
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $recentTable = Table::query()->where('code', 'T02')->firstOrFail();
+        $expiredTable = Table::query()->where('code', 'T03')->firstOrFail();
+
+        $recentTable->update([
+            'status' => 'CLEANING',
+            'cleaning_started_at' => now()->subMinutes(9),
+        ]);
+        $expiredTable->update([
+            'status' => 'CLEANING',
+            'cleaning_started_at' => now()->subMinutes(10)->subSecond(),
+        ]);
+
+        $this->actingAs($cashier, 'sanctum')
+            ->getJson('/api/v1/tables')
+            ->assertOk();
+
+        $this->assertDatabaseHas('tables', [
+            'id' => $recentTable->id,
+            'status' => 'CLEANING',
+        ]);
+        $this->assertDatabaseHas('tables', [
+            'id' => $expiredTable->id,
+            'status' => 'AVAILABLE',
+            'cleaning_started_at' => null,
+        ]);
     }
 
     /**

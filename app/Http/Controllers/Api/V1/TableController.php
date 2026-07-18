@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Table;
 use App\Support\AuditLogger;
-use Carbon\Carbon;
+use App\Support\TableCleaningManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,12 +23,7 @@ class TableController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        Table::query()
-            ->where('status', 'CLEANING')
-            ->where('updated_at', '<=', Carbon::now()->subMinutes(10))
-            ->update([
-                'status' => 'AVAILABLE',
-            ]);
+        TableCleaningManager::releaseExpiredTables();
 
         $tables = Table::query()
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
@@ -52,12 +47,14 @@ class TableController extends Controller
         ]);
 
         $table = DB::transaction(function () use ($validated) {
+            $status = $validated['status'] ?? 'AVAILABLE';
+
             return Table::query()->create([
                 'code' => $this->generateNextTableCode(),
                 'name' => $validated['name'],
                 'capacity' => $validated['capacity'] ?? 1,
                 'area' => $validated['area'] ?? null,
-                'status' => $validated['status'] ?? 'AVAILABLE',
+                ...TableCleaningManager::statusAttributes($status),
                 'is_active' => $validated['is_active'] ?? true,
             ]);
         });
@@ -89,6 +86,14 @@ class TableController extends Controller
         ]);
 
         $before = $table->only(['code', 'name', 'capacity', 'area', 'status', 'is_active']);
+
+        if (array_key_exists('status', $validated)) {
+            $newStatus = $validated['status'];
+            $statusChanged = $newStatus !== $table->status;
+            $validated['cleaning_started_at'] = $newStatus === 'CLEANING'
+                ? ($statusChanged ? now() : $table->cleaning_started_at)
+                : null;
+        }
 
         $table->fill($validated);
         $table->save();
@@ -126,8 +131,7 @@ class TableController extends Controller
 
         $before = $table->only(['code', 'name', 'capacity', 'area', 'status', 'is_active']);
 
-        $table->status = 'AVAILABLE';
-        $table->save();
+        $table->update(TableCleaningManager::statusAttributes('AVAILABLE'));
 
         AuditLogger::log(
             userId: $request->user()->id,

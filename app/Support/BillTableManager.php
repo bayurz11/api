@@ -79,7 +79,9 @@ class BillTableManager
             return;
         }
 
-        Table::query()->whereIn('id', $tableIds)->update(['status' => $status]);
+        Table::query()
+            ->whereIn('id', $tableIds)
+            ->update(TableCleaningManager::statusAttributes($status));
     }
 
     public static function updateBillTablesStatus(Bill $bill, string $status): void

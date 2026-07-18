@@ -16,6 +16,7 @@ use App\Support\BillTableManager;
 use App\Support\BillTotals;
 use App\Support\InventoryManager;
 use App\Support\SequenceNumber;
+use App\Support\TableCleaningManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -60,6 +61,8 @@ class BillController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        TableCleaningManager::releaseExpiredTables();
+
         $validated = $request->validate([
             'bill_type' => ['required', 'string', Rule::in(self::BILL_TYPES)],
             'table_id' => ['nullable', 'integer', 'exists:tables,id'],
@@ -264,7 +267,9 @@ class BillController extends Controller
             $bill->update(['table_id' => $validated['table_id']]);
             BillTableManager::syncBillTables($bill, $updatedTableIds);
 
-            Table::query()->whereKey($previousTableId)->update(['status' => 'AVAILABLE']);
+            Table::query()
+                ->whereKey($previousTableId)
+                ->update(TableCleaningManager::statusAttributes('AVAILABLE'));
             BillTableManager::updateTablesStatus($updatedTableIds, 'OPEN_BILL');
 
             AuditLogger::log(
@@ -701,6 +706,14 @@ class BillController extends Controller
 
             $totalCapacity = BillTableManager::totalCapacity($linkedTableIds);
             abort_if($guestCount > $totalCapacity, 422, 'Kapasitas meja gabungan belum cukup untuk jumlah tamu.');
+
+            $unavailableTableExists = Table::query()
+                ->whereIn('id', $linkedTableIds)
+                ->where(function ($query) {
+                    $query->where('status', '!=', 'AVAILABLE')->orWhere('is_active', false);
+                })
+                ->exists();
+            abort_if($unavailableTableExists, 422, 'Salah satu meja belum tersedia untuk digunakan.');
         }
 
         if (in_array($billType, ['TAKE_AWAY', 'CATERING', 'WALK_IN', 'DELIVERY'], true)) {

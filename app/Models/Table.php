@@ -17,6 +17,7 @@ class Table extends Model
         'capacity',
         'area',
         'status',
+        'cleaning_started_at',
         'is_active',
     ];
 
@@ -24,6 +25,7 @@ class Table extends Model
     {
         return [
             'is_active' => 'boolean',
+            'cleaning_started_at' => 'datetime',
         ];
     }
 

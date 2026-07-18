@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\TableCleaningManager;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -14,3 +15,7 @@ Schedule::call(function (): void {
         ->where('logged_at', '<', now()->subDays(config('audit.retention_days', 180)))
         ->delete();
 })->dailyAt('02:30')->name('purge-expired-audit-logs')->withoutOverlapping();
+
+Schedule::call(function (): void {
+    TableCleaningManager::releaseExpiredTables(force: true);
+})->everyMinute()->name('release-cleaning-tables')->withoutOverlapping();

@@ -91,10 +91,10 @@ class DemoDataSeeder extends Seeder
         ], ['member_code'], ['name', 'phone', 'email', 'reward_points', 'notes']);
 
         DB::table('tables')->upsert([
-            ['code' => 'T01', 'name' => 'Meja 01', 'capacity' => 4, 'area' => 'Indoor', 'status' => 'AVAILABLE', 'is_active' => true],
-            ['code' => 'T02', 'name' => 'Meja 02', 'capacity' => 4, 'area' => 'Indoor', 'status' => 'AVAILABLE', 'is_active' => true],
-            ['code' => 'T03', 'name' => 'Meja 03', 'capacity' => 2, 'area' => 'Teras', 'status' => 'CLEANING', 'is_active' => true],
-        ], ['code'], ['name', 'capacity', 'area', 'status', 'is_active']);
+            ['code' => 'T01', 'name' => 'Meja 01', 'capacity' => 4, 'area' => 'Indoor', 'status' => 'AVAILABLE', 'cleaning_started_at' => null, 'is_active' => true],
+            ['code' => 'T02', 'name' => 'Meja 02', 'capacity' => 4, 'area' => 'Indoor', 'status' => 'AVAILABLE', 'cleaning_started_at' => null, 'is_active' => true],
+            ['code' => 'T03', 'name' => 'Meja 03', 'capacity' => 2, 'area' => 'Teras', 'status' => 'CLEANING', 'cleaning_started_at' => now(), 'is_active' => true],
+        ], ['code'], ['name', 'capacity', 'area', 'status', 'cleaning_started_at', 'is_active']);
 
         DB::table('menu_categories')->upsert([
             ['name' => 'Makanan', 'station_type' => 'KITCHEN', 'sort_order' => 1, 'is_active' => true],

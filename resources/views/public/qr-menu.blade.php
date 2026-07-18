@@ -248,6 +248,7 @@
         .menu-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
+            align-items: start;
             gap: 16px;
         }
 
@@ -267,7 +268,7 @@
 
         .menu-cover {
             position: relative;
-            height: 172px;
+            height: 122px;
             background: linear-gradient(135deg, #EDF6F0, #FFF6D8);
             display: flex;
             align-items: center;
@@ -300,6 +301,35 @@
         .menu-cover-fallback .sku {
             font-size: 18px;
             letter-spacing: 0.4px;
+        }
+
+        .cover-category {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 2;
+            padding: 7px 11px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.94);
+            color: var(--green);
+            font-size: 13px;
+            font-weight: 800;
+            box-shadow: 0 4px 12px rgba(0, 75, 54, 0.10);
+        }
+
+        .menu-cover-decoration {
+            position: absolute;
+            right: -8px;
+            bottom: -12px;
+            width: 72px;
+            height: 72px;
+            color: rgba(227, 181, 28, 0.20);
+        }
+
+        .menu-cover-icon {
+            width: 34px;
+            height: 34px;
+            color: var(--green);
         }
 
         .menu-body {
@@ -370,7 +400,9 @@
             margin: 0;
             color: var(--muted);
             line-height: 1.5;
-            min-height: 44px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .menu-unavailable {
@@ -388,10 +420,16 @@
 
         .variant-composer {
             margin-top: 2px;
-            padding: 16px;
-            border: 1px solid var(--line);
-            border-radius: 24px;
-            background: linear-gradient(180deg, #F8FDF8 0%, #FFFDF7 100%);
+            padding: 12px;
+            border-radius: 18px;
+            background: #F3F8F4;
+        }
+
+        .variant-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
         }
 
         .variant-title {
@@ -435,8 +473,7 @@
         .variant-panel {
             margin-top: 14px;
             padding: 14px;
-            border: 1px solid #F4E2AA;
-            border-radius: 22px;
+            border-radius: 16px;
             background: var(--white);
         }
 
@@ -452,25 +489,6 @@
             color: var(--muted);
             line-height: 1.4;
             font-size: 12px;
-        }
-
-        .variant-summary {
-            margin-top: 12px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-
-        .variant-summary-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 8px 12px;
-            border-radius: 999px;
-            background: var(--soft);
-            color: var(--deep);
-            font-size: 13px;
-            font-weight: 800;
         }
 
         .qty-row {
@@ -533,19 +551,6 @@
             margin-top: 0;
         }
 
-        .menu-ready {
-            width: 100%;
-            padding: 12px;
-            border-radius: 16px;
-            background: var(--soft);
-            color: var(--deep);
-            font-size: 13px;
-            font-weight: 800;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
         .note-field {
             margin-top: 12px;
         }
@@ -563,6 +568,22 @@
         .note-field input:focus {
             border-color: var(--green);
             box-shadow: 0 0 0 4px rgba(13, 107, 58, 0.08);
+        }
+
+        .note-field textarea {
+            width: 100%;
+            min-height: 74px;
+            resize: vertical;
+            border: none;
+            border-radius: 14px;
+            padding: 13px;
+            outline: none;
+            color: var(--deep);
+            background: #FFFCF1;
+        }
+
+        .note-field textarea:focus {
+            box-shadow: 0 0 0 3px rgba(13, 107, 58, 0.08);
         }
 
         .cart-bar {
@@ -956,6 +977,10 @@
             .menu-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
+
+            .menu-cover {
+                height: 138px;
+            }
         }
 
         @media (max-width: 760px) {
@@ -1007,12 +1032,8 @@
                 flex-wrap: wrap;
             }
 
-            .selected-pill {
-                margin-left: 0;
-            }
-
             .variant-composer {
-                padding: 14px;
+                padding: 12px;
             }
 
             .variant-selector {
@@ -1025,17 +1046,10 @@
             }
 
             .qty-panel {
-                flex-direction: column;
-                align-items: stretch;
-                gap: 10px;
-            }
-
-            .qty-label {
-                flex: none;
+                gap: 8px;
             }
 
             .qty-row {
-                width: 100%;
                 gap: 10px;
             }
 
@@ -1048,9 +1062,8 @@
             }
 
             .qty-input {
-                width: 100%;
-                min-width: 0;
-                flex: 1;
+                width: 84px;
+                min-width: 64px;
                 font-size: 20px;
             }
 
@@ -1185,7 +1198,6 @@
                 <div class="control-panel">
                     <div>
                         <h2>Cari &amp; filter menu</h2>
-                        <p>Pilih kategori dan cari menu seperti pada halaman tambah order di aplikasi kasir.</p>
                     </div>
                     <div class="search-box">
                         <span class="search-icon">&#128269;</span>
@@ -1193,10 +1205,6 @@
                     </div>
                     <div id="categoryChips" class="chips-row"></div>
                     <div class="stat-row">
-                        <div class="stat-pill">
-                            <strong>Siap dipesan</strong>
-                            <span id="readyCount">0 menu</span>
-                        </div>
                         <div id="unavailableStat" class="stat-pill alert" style="display:none;">
                             <strong>Ditutup / habis</strong>
                             <span id="unavailableCount">0 menu</span>
@@ -1242,7 +1250,6 @@
         const feedbackError = document.getElementById('feedbackError');
         const feedbackSuccess = document.getElementById('feedbackSuccess');
         const searchInput = document.getElementById('searchInput');
-        const readyCount = document.getElementById('readyCount');
         const unavailableStat = document.getElementById('unavailableStat');
         const unavailableCount = document.getElementById('unavailableCount');
         const menuSummary = document.getElementById('menuSummary');
@@ -1790,9 +1797,11 @@
                 const note = document.createElement('div');
                 note.className = 'note-field';
 
-                const noteInput = document.createElement('input');
-                noteInput.type = 'text';
-                noteInput.placeholder = option ? 'Catatan untuk varian ini' : 'Catatan untuk menu ini';
+                const noteInput = document.createElement('textarea');
+                noteInput.rows = 2;
+                noteInput.placeholder = option
+                    ? `Catatan ${option.name.toLowerCase()}, contoh: jangan pedas`
+                    : 'Catatan, contoh: kering garing';
                 noteInput.value = currentNotes(menu.id, option?.id ?? null);
                 noteInput.addEventListener('input', (event) => {
                     updateSelectionNotes(menu, option, event.target.value);
@@ -1816,7 +1825,6 @@
             }).length;
             const unavailableMenusCount = Math.max(allMenus().length - readyMenusCount, 0);
 
-            readyCount.textContent = `${readyMenusCount} menu`;
             unavailableCount.textContent = `${unavailableMenusCount} menu`;
             unavailableStat.style.display = unavailableMenusCount > 0 ? 'block' : 'none';
 
@@ -1855,7 +1863,20 @@
                         <div class="sku">${menu.sku ?? ''}</div>
                     `;
                     cover.appendChild(fallback);
+                    fallback.innerHTML = `
+                        <svg class="menu-cover-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            ${menu.station_type === 'BAR'
+                                ? '<path d="M9 3v5l-4.7 8.2A3.2 3.2 0 0 0 7.1 21h9.8a3.2 3.2 0 0 0 2.8-4.8L15 8V3"/><path d="M8 13h8"/><path d="M8 3h8"/>'
+                                : '<path d="M4 11h16v9H4z"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/><path d="M9 5V3m3 2V2m3 3V3"/>'}
+                        </svg>
+                        <div class="sku">${menu.sku ?? ''}</div>
+                    `;
                 }
+
+                const categoryBadge = document.createElement('div');
+                categoryBadge.className = 'cover-category';
+                categoryBadge.textContent = menu.category_name ?? 'Tanpa kategori';
+                cover.appendChild(categoryBadge);
 
                 const body = document.createElement('div');
                 body.className = 'menu-body';
@@ -1872,14 +1893,6 @@
                 title.textContent = menu.name;
                 body.appendChild(title);
 
-                const chips = document.createElement('div');
-                chips.className = 'menu-chip-wrap';
-                chips.innerHTML = `
-                    <span class="info-chip">${menu.category_name ?? 'Tanpa kategori'}</span>
-                    <span class="info-chip">${menu.station_type === 'BAR' ? 'Bar' : 'Dapur'}</span>
-                `;
-                body.appendChild(chips);
-
                 const priceRow = document.createElement('div');
                 priceRow.className = 'price-row';
 
@@ -1887,11 +1900,13 @@
                 price.className = 'price-pill';
                 price.textContent = `Rp ${currency(menu.price)}`;
 
-                const selectedPill = document.createElement('span');
-                selectedPill.className = `selected-pill${selectedTotal > 0 ? ' active' : ''}`;
-                selectedPill.textContent = selectedTotal > 0 ? `${selectedTotal} item dipilih` : 'Belum dipilih';
-
-                priceRow.append(price, selectedPill);
+                priceRow.appendChild(price);
+                if (selectedTotal > 0) {
+                    const selectedPill = document.createElement('span');
+                    selectedPill.className = 'selected-pill active';
+                    selectedPill.textContent = `${selectedTotal} dipilih`;
+                    priceRow.appendChild(selectedPill);
+                }
                 body.appendChild(priceRow);
 
                 if (menu.description) {
@@ -1903,7 +1918,6 @@
 
                 if (hasOptions) {
                     const selectableOptions = options.filter((option) => option.is_available && option.is_active && option.is_stock_available);
-                    const selectedOptions = options.filter((option) => currentQty(menu.id, option.id) > 0);
                     const activeOptionId = state.activeOptionByMenu[menu.id]
                         ?? selectableOptions[0]?.id
                         ?? options[0]?.id
@@ -1917,20 +1931,35 @@
                     const composer = document.createElement('div');
                     composer.className = 'variant-composer';
 
+                    const titleRow = document.createElement('div');
+                    titleRow.className = 'variant-title-row';
+
                     const title = document.createElement('h4');
                     title.className = 'variant-title';
                     title.textContent = 'Pilih varian';
-                    composer.appendChild(title);
+                    titleRow.appendChild(title);
+                    if (selectedTotal > 0) {
+                        const selectedCount = document.createElement('span');
+                        selectedCount.className = 'selected-pill active';
+                        selectedCount.textContent = `${selectedTotal} item`;
+                        titleRow.appendChild(selectedCount);
+                    }
+                    composer.appendChild(titleRow);
 
                     const selector = document.createElement('div');
                     selector.className = 'variant-selector';
 
                     options.forEach((option) => {
                         const optionAvailable = option.is_available && option.is_active && option.is_stock_available;
+                        const optionQty = currentQty(menu.id, option.id);
                         const chip = document.createElement('button');
                         chip.type = 'button';
                         chip.className = `variant-chip${option.id === activeOptionId ? ' active' : ''}${optionAvailable ? '' : ' unavailable'}`;
-                        chip.textContent = optionAvailable ? option.name : `${option.name} Habis`;
+                        const optionExtraPrice = Number(option.price_delta || 0);
+                        const optionPriceLabel = optionExtraPrice > 0 ? ` (+Rp ${currency(optionExtraPrice)})` : '';
+                        chip.textContent = optionAvailable
+                            ? `${option.name}${optionPriceLabel}${optionQty > 0 ? ` · ${optionQty}` : ''}`
+                            : `${option.name} Habis`;
                         if (optionAvailable) {
                             chip.addEventListener('click', () => setActiveOption(menu.id, option.id));
                         } else {
@@ -1953,11 +1982,9 @@
                         const description = document.createElement('p');
                         const extraPrice = Number(activeOption.price_delta || 0);
                         description.textContent = activeOptionAvailable
-                            ? (
-                                extraPrice > 0
-                                    ? `Tambahan Rp ${currency(extraPrice)}. Atur jumlah untuk varian ini. Pindah ke varian lain tidak akan menghapus input yang sudah dipilih.`
-                                    : 'Atur jumlah untuk varian ini. Pindah ke varian lain tidak akan menghapus input yang sudah dipilih.'
-                            )
+                            ? (extraPrice > 0
+                                ? `Tambahan Rp ${currency(extraPrice)} · pilihan tersimpan otomatis.`
+                                : 'Pilihan tersimpan otomatis saat Anda memilih varian lain.')
                             : 'Varian ini sedang habis dan belum bisa dipesan.';
                         panel.appendChild(description);
 
@@ -1972,43 +1999,23 @@
 
                             const qtyComposer = createQtyComposer(menu, activeOption, false);
                             const qtyRow = qtyComposer.firstChild;
+                            const noteField = qtyComposer.querySelector('.note-field');
                             if (qtyRow) {
                                 qtyPanel.appendChild(qtyRow);
                             }
                             panel.appendChild(qtyPanel);
 
-                            if (qtyComposer.children[1]) {
-                                panel.appendChild(qtyComposer.children[1]);
+                            if (noteField) {
+                                panel.appendChild(noteField);
                             }
                         }
 
                         composer.appendChild(panel);
                     }
 
-                    if (selectedOptions.length > 0) {
-                        const summary = document.createElement('div');
-                        summary.className = 'variant-summary';
-                        selectedOptions.forEach((option) => {
-                            const summaryPill = document.createElement('div');
-                            summaryPill.className = 'variant-summary-pill';
-                            summaryPill.textContent = `${option.name} • ${currentQty(menu.id, option.id)} item`;
-                            summary.appendChild(summaryPill);
-                        });
-                        composer.appendChild(summary);
-                    }
-
                     body.appendChild(composer);
                 } else {
                     body.appendChild(createQtyComposer(menu, null, !canOrder));
-                }
-
-                if (selectedTotal > 0) {
-                    const ready = document.createElement('div');
-                    ready.className = 'menu-ready';
-                    ready.textContent = hasOptions
-                        ? 'Pilihan menu sudah disiapkan untuk dikirim.'
-                        : 'Menu sudah masuk ke draft order.';
-                    body.appendChild(ready);
                 }
 
                 card.append(cover, body);
