@@ -335,10 +335,12 @@ class DashboardController extends Controller
                         'today_estimated_profit' => $todaySales - $todayEstimatedCogs,
                     ],
                     'analytics' => [
-                        'sales_trend' => $trendPayload,
-                        'top_items' => $topItems,
-                        'payment_methods' => $paymentMethods,
-                        'bill_types' => $billTypes,
+                        // Cache plain arrays so every cache driver keeps the JSON
+                        // contract as [] instead of serializing keyed collections as {}.
+                        'sales_trend' => $trendPayload->all(),
+                        'top_items' => $topItems->all(),
+                        'payment_methods' => $paymentMethods->all(),
+                        'bill_types' => $billTypes->all(),
                         'inventory' => [
                             'stock_items_count' => $inventoryItemsCount,
                             'low_stock_items_count' => $lowStockItemsCount,
@@ -378,7 +380,7 @@ class DashboardController extends Controller
                             'event_due_count' => $eventItems->count(),
                             'total_due_count' => $reminderItems->count(),
                         ],
-                        'items' => $reminderItems,
+                        'items' => $reminderItems->all(),
                     ],
                 ];
             },

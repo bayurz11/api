@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\V1\ReservationController;
 use App\Http\Controllers\Api\V1\RestaurantProfileController;
 use App\Http\Controllers\Api\V1\ShoppingNoteController;
 use App\Http\Controllers\Api\V1\TableController;
+use App\Http\Controllers\Api\V1\UserManagementController;
 use App\Http\Controllers\Api\V1\WaiterChecklistController;
 use Illuminate\Support\Facades\Route;
 
@@ -58,6 +59,18 @@ Route::prefix('v1')->group(function () {
         Route::middleware('permission:settings.manage')->group(function () {
             Route::post('/settings/restaurant-profile', [RestaurantProfileController::class, 'update']);
             Route::post('/settings/reminders', [ReminderSettingsController::class, 'update']);
+        });
+
+        Route::middleware('permission:users.view')->group(function () {
+            Route::get('/users', [UserManagementController::class, 'index']);
+            Route::get('/users/roles', [UserManagementController::class, 'roles']);
+        });
+
+        Route::middleware('permission:users.manage')->group(function () {
+            Route::post('/users', [UserManagementController::class, 'store']);
+            Route::patch('/users/{user}', [UserManagementController::class, 'update']);
+            Route::post('/users/{user}/reset-password', [UserManagementController::class, 'resetPassword']);
+            Route::post('/users/{user}/revoke-sessions', [UserManagementController::class, 'revokeSessions']);
         });
 
         Route::middleware('permission:tables.view')->group(function () {

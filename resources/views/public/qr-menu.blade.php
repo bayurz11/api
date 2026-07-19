@@ -33,6 +33,10 @@
             color: var(--text);
         }
 
+        body.order-complete .page {
+            padding-bottom: 28px;
+        }
+
         button,
         input,
         textarea {
@@ -665,60 +669,87 @@
 
         .success-screen {
             display: none;
-            margin-top: 18px;
+            width: min(100%, 760px);
+            margin: 0 auto;
         }
 
         .success-screen.show {
             display: block;
+            animation: successReveal 260ms ease-out both;
+        }
+
+        @keyframes successReveal {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .success-hero {
-            padding: 22px 20px;
-            border-radius: 24px;
-            background: linear-gradient(135deg, var(--green), var(--deep));
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            padding: 18px;
+            border-radius: 22px;
+            background: linear-gradient(135deg, #F3FBF5, #FFFDF5);
+            border: 1px solid #CDE7D4;
+            box-shadow: 0 12px 28px rgba(0, 75, 54, 0.08);
+        }
+
+        .success-mark {
+            width: 46px;
+            height: 46px;
+            flex: 0 0 46px;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            background: var(--green);
             color: var(--white);
-            box-shadow: 0 18px 42px rgba(0, 75, 54, 0.18);
+            font-size: 24px;
+            font-weight: 900;
+        }
+
+        .success-copy {
+            min-width: 0;
         }
 
         .success-badge {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 10px 14px;
+            padding: 5px 10px;
             border-radius: 999px;
-            background: rgba(255, 255, 255, 0.14);
-            font-size: 14px;
+            background: #DDF1E3;
+            color: var(--green);
+            font-size: 12px;
             font-weight: 800;
         }
 
         .success-hero h2 {
-            margin: 14px 0 0;
-            font-size: clamp(26px, 4vw, 34px);
-            line-height: 1.1;
+            margin: 8px 0 0;
+            font-size: clamp(21px, 4vw, 26px);
+            line-height: 1.2;
             font-weight: 900;
+            color: var(--deep);
         }
 
         .success-hero p {
-            margin: 10px 0 0;
-            color: rgba(255, 255, 255, 0.92);
-            line-height: 1.55;
-            max-width: 760px;
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.45;
         }
 
         .success-grid {
-            display: grid;
-            grid-template-columns: repeat(12, minmax(0, 1fr));
-            gap: 16px;
-            margin-top: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 12px;
         }
 
         .success-card {
-            grid-column: span 12;
-            padding: 18px;
-            border-radius: 24px;
+            padding: 16px;
+            border-radius: 22px;
             border: 1px solid var(--line);
             background: var(--white);
-            box-shadow: var(--shadow);
+            box-shadow: 0 12px 28px rgba(0, 75, 54, 0.07);
         }
 
         .success-card h3 {
@@ -734,26 +765,33 @@
             line-height: 1.5;
         }
 
-        .success-card--summary {
-            grid-column: span 7;
+        .success-card-header,
+        .success-items-header,
+        .success-order-line,
+        .success-total-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
         }
 
-        .success-card--items {
-            grid-column: span 5;
+        .success-card-header p {
+            margin-top: 4px;
+            font-size: 13px;
         }
 
         .success-status-row {
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
-            margin-top: 16px;
+            margin: 0;
         }
 
         .success-status-pill {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 10px 14px;
+            padding: 7px 11px;
             border-radius: 999px;
             font-size: 14px;
             font-weight: 800;
@@ -776,16 +814,38 @@
             color: var(--danger);
         }
 
+        .success-order-line {
+            margin-top: 14px;
+            padding: 12px 14px;
+            border-radius: 16px;
+            background: #FFFDF5;
+        }
+
+        .success-order-line span {
+            display: block;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .success-order-line strong {
+            display: block;
+            margin-top: 3px;
+            font-size: 15px;
+            color: var(--deep);
+            overflow-wrap: anywhere;
+        }
+
         .success-meta {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px;
-            margin-top: 18px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 10px;
         }
 
         .success-meta-item {
-            padding: 14px 16px;
-            border-radius: 18px;
+            min-width: 0;
+            padding: 10px 12px;
+            border-radius: 14px;
             background: var(--soft-2);
         }
 
@@ -793,68 +853,66 @@
             display: block;
             font-size: 13px;
             color: var(--muted);
-            margin-bottom: 4px;
+            margin-bottom: 3px;
         }
 
         .success-meta-item span {
             display: block;
-            font-size: 18px;
-            font-weight: 900;
+            font-size: 14px;
+            font-weight: 800;
             color: var(--deep);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .success-next-steps {
-            margin-top: 16px;
-            padding: 16px;
-            border-radius: 20px;
-            background: #FFFDF5;
-            border: 1px solid var(--line);
+            margin-top: 12px;
+            padding: 12px 14px;
+            border-radius: 15px;
+            background: var(--soft);
         }
 
         .success-timeline {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 12px;
-            margin-top: 18px;
+            gap: 6px;
+            margin-top: 12px;
         }
 
         .timeline-step {
             position: relative;
-            min-height: 124px;
-            padding: 16px;
-            border-radius: 20px;
-            border: 1px solid #E9E9DB;
-            background: #FAFAF4;
-            transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+            padding-top: 13px;
+            border-top: 3px solid #E2E5DF;
         }
 
         .timeline-step.current {
-            border-color: var(--line);
-            background: #FFFDF5;
-            box-shadow: 0 10px 22px rgba(0, 75, 54, 0.08);
+            border-color: var(--gold);
         }
 
         .timeline-step.done {
-            border-color: #CDE7D4;
-            background: #F6FCF7;
+            border-color: var(--green);
         }
 
         .timeline-step.rejected {
-            border-color: #F5CEC7;
-            background: #FFF7F4;
+            border-color: var(--danger);
         }
 
         .timeline-step-badge {
-            width: 36px;
-            height: 36px;
+            position: absolute;
+            top: -8px;
+            left: 0;
+            width: 14px;
+            height: 14px;
             border-radius: 999px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 14px;
+            font-size: 0;
             font-weight: 900;
             background: #E9E9DB;
             color: var(--muted);
+            border: 3px solid var(--white);
         }
 
         .timeline-step.done .timeline-step-badge,
@@ -869,45 +927,41 @@
         }
 
         .timeline-step-title {
-            margin-top: 12px;
-            font-size: 15px;
+            margin-top: 4px;
+            font-size: 12px;
             font-weight: 800;
             color: var(--deep);
         }
 
         .timeline-step-desc {
-            margin-top: 8px;
-            font-size: 13px;
-            line-height: 1.45;
-            color: var(--muted);
+            display: none;
         }
 
         .success-next-steps strong {
             display: block;
-            margin-bottom: 8px;
-            font-size: 15px;
+            margin-bottom: 5px;
+            font-size: 13px;
             color: var(--deep);
         }
 
         .success-next-steps ul {
             margin: 0;
-            padding-left: 18px;
+            padding-left: 16px;
             color: var(--muted);
-            line-height: 1.55;
+            font-size: 13px;
+            line-height: 1.45;
         }
 
         .success-items {
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            margin-top: 16px;
+            margin-top: 10px;
+            border-top: 1px solid #ECEDE7;
         }
 
         .success-item {
-            padding: 14px 16px;
-            border-radius: 18px;
-            background: #FFFDF5;
-            border: 1px solid var(--line);
+            padding: 12px 0;
+            border-bottom: 1px solid #ECEDE7;
         }
 
         .success-item-head {
@@ -918,14 +972,14 @@
         }
 
         .success-item-title {
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 800;
             color: var(--deep);
         }
 
         .success-item-qty {
             flex: none;
-            padding: 8px 12px;
+            padding: 5px 9px;
             border-radius: 999px;
             background: var(--soft);
             font-size: 13px;
@@ -934,17 +988,42 @@
         }
 
         .success-item-note {
-            margin-top: 8px;
-            font-size: 13px;
+            margin-top: 4px;
+            font-size: 12px;
             color: var(--muted);
             line-height: 1.45;
         }
 
         .success-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-top: 18px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .success-actions .submit-button,
+        .success-actions .secondary-button {
+            width: 100%;
+            min-height: 44px;
+            padding: 11px 14px;
+            border-radius: 14px;
+            font-size: 14px;
+        }
+
+        .success-total-row {
+            margin-top: 12px;
+            padding-top: 12px;
+        }
+
+        .success-total-row span {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .success-total-row strong {
+            color: var(--gold);
+            font-size: 20px;
+            font-weight: 900;
         }
 
         .secondary-button {
@@ -1007,16 +1086,34 @@
                 gap: 14px;
             }
 
-            .success-card--summary,
-            .success-card--items {
-                grid-column: span 12;
-            }
-
             .success-meta {
-                grid-template-columns: 1fr;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
             .success-timeline {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+
+            .success-hero {
+                padding: 15px;
+            }
+
+            .success-card {
+                padding: 14px;
+                border-radius: 18px;
+            }
+
+            .success-card-header {
+                align-items: flex-start;
+            }
+
+            .success-status-pill {
+                max-width: 45%;
+                text-align: center;
+                justify-content: center;
+            }
+
+            .success-actions {
                 grid-template-columns: 1fr;
             }
 
@@ -1086,7 +1183,7 @@
 </head>
 <body>
     <div class="page">
-        <section class="header-card">
+        <section id="orderHeader" class="header-card">
             <div class="hero-badge">Meja {{ $tableCode }}</div>
             <h1>Tambah Order</h1>
             <p>Pilih menu yang ingin Anda pesan dari meja ini, lalu kirim pesanan ke tim restoran.</p>
@@ -1094,27 +1191,36 @@
 
         <section id="successScreen" class="success-screen">
             <div class="success-hero">
-                <div id="successBadge" class="success-badge">Pesanan berhasil masuk</div>
-                <h2>Pesanan Anda sudah diterima</h2>
-                <p id="successSubtitle">Tim restoran sedang meninjau pesanan Anda sebelum diteruskan ke proses berikutnya.</p>
+                <div class="success-mark" aria-hidden="true">&#10003;</div>
+                <div class="success-copy">
+                    <div id="successBadge" class="success-badge">Pesanan berhasil masuk</div>
+                    <h2>Pesanan Anda sudah diterima</h2>
+                    <p id="successSubtitle">Tim restoran sedang meninjau pesanan Anda sebelum diteruskan ke proses berikutnya.</p>
+                </div>
             </div>
 
             <div class="success-grid">
                 <section class="success-card success-card--summary">
-                    <h3>Ringkasan Pesanan</h3>
-                    <p id="successDescription">Simpan ringkasan ini agar mudah dicek bila Anda ingin menanyakan status ke tim restoran.</p>
-
-                    <div class="success-status-row">
+                    <div class="success-card-header">
+                        <div>
+                            <h3>Pesanan Saya</h3>
+                            <p id="successDescription">Status pesanan diperbarui otomatis.</p>
+                        </div>
                         <div id="successStatusPill" class="success-status-pill pending">Menunggu konfirmasi restoran</div>
                     </div>
 
-                    <div id="successTimeline" class="success-timeline"></div>
+                    <div class="success-order-line">
+                        <div>
+                            <span>Nomor pesanan</span>
+                            <strong id="successOrderNo">-</strong>
+                        </div>
+                        <div class="hidden">
+                            <span id="successBillNo">-</span>
+                            <span id="successProcessLabel">Menunggu konfirmasi</span>
+                        </div>
+                    </div>
 
                     <div class="success-meta">
-                        <div class="success-meta-item">
-                            <strong>Nomor pesanan</strong>
-                            <span id="successOrderNo">-</span>
-                        </div>
                         <div class="success-meta-item">
                             <strong>Meja</strong>
                             <span id="successTable">-</span>
@@ -1124,33 +1230,17 @@
                             <span id="successCustomer">-</span>
                         </div>
                         <div class="success-meta-item">
-                            <strong>Jumlah item</strong>
-                            <span id="successItemsCount">0 item</span>
-                        </div>
-                        <div class="success-meta-item">
-                            <strong>Total perkiraan</strong>
-                            <span id="successGrandTotal">Rp 0</span>
-                        </div>
-                        <div class="success-meta-item">
                             <strong>Waktu kirim</strong>
                             <span id="successSubmittedAt">-</span>
                         </div>
-                        <div class="success-meta-item">
-                            <strong>Bill</strong>
-                            <span id="successBillNo">-</span>
-                        </div>
-                        <div class="success-meta-item">
-                            <strong>Status proses</strong>
-                            <span id="successProcessLabel">Menunggu konfirmasi</span>
-                        </div>
                     </div>
 
+                    <div id="successTimeline" class="success-timeline"></div>
+
                     <div class="success-next-steps">
-                        <strong>Langkah selanjutnya</strong>
+                        <strong>Informasi status</strong>
                         <ul id="successNextSteps">
                             <li>Pesanan akan dicek oleh tim restoran.</li>
-                            <li>Setelah disetujui, pesanan akan masuk ke tagihan meja Anda.</li>
-                            <li>Jika ingin menambah menu lagi, tekan tombol Pesan Lagi.</li>
                         </ul>
                     </div>
 
@@ -1161,9 +1251,15 @@
                 </section>
 
                 <section class="success-card success-card--items">
-                    <h3>Item yang Dikirim</h3>
-                    <p>Periksa kembali daftar menu yang baru saja Anda kirim dari meja ini.</p>
+                    <div class="success-items-header">
+                        <h3>Rincian Pesanan</h3>
+                        <span id="successItemsCount" class="success-status-pill approved">0 item</span>
+                    </div>
                     <div id="successItems" class="success-items"></div>
+                    <div class="success-total-row">
+                        <span>Total pesanan</span>
+                        <strong id="successGrandTotal">Rp 0</strong>
+                    </div>
                 </section>
             </div>
         </section>
@@ -1255,6 +1351,7 @@
         const menuSummary = document.getElementById('menuSummary');
         const orderingFlow = document.getElementById('orderingFlow');
         const successScreen = document.getElementById('successScreen');
+        const orderHeader = document.getElementById('orderHeader');
         const successBadge = document.getElementById('successBadge');
         const successSubtitle = document.getElementById('successSubtitle');
         const successDescription = document.getElementById('successDescription');
@@ -1527,18 +1624,15 @@
             const steps = [];
 
             if (status === 'APPROVED') {
-                steps.push('Pesanan sudah diterima restoran dan masuk ke proses operasional.');
+                steps.push('Pesanan sudah disetujui dan sedang diproses oleh tim restoran.');
                 if (order.bill && order.bill.bill_no) {
                     steps.push(`Pesanan ini sudah masuk ke tagihan ${order.bill.bill_no}.`);
                 }
-                steps.push('Jika ingin menambah menu lagi, Anda bisa kembali ke menu dan kirim pesanan tambahan.');
             } else if (status === 'REJECTED') {
                 steps.push('Pesanan ini belum bisa diproses oleh restoran.');
-                steps.push('Silakan hubungi petugas restoran atau buat pesanan baru bila diperlukan.');
+                steps.push('Silakan hubungi petugas restoran bila memerlukan bantuan.');
             } else {
-                steps.push('Pesanan akan dicek terlebih dahulu oleh tim restoran.');
-                steps.push('Setelah disetujui, pesanan akan masuk ke tagihan meja Anda.');
-                steps.push('Jika ingin menambah menu lagi, tekan tombol Pesan Lagi.');
+                steps.push('Tim restoran sedang memeriksa pesanan sebelum meneruskannya ke dapur atau bar.');
             }
 
             successNextSteps.innerHTML = '';
@@ -1552,6 +1646,8 @@
         function showOrderingFlow() {
             clearStatusTimer();
             successScreen.classList.remove('show');
+            document.body.classList.remove('order-complete');
+            orderHeader.classList.remove('hidden');
             orderingFlow.classList.remove('hidden');
             refreshCart();
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1583,6 +1679,8 @@
             state.lastGuestToken = order.guest_token || state.lastGuestToken || null;
             persistGuestToken(state.lastGuestToken);
             orderingFlow.classList.add('hidden');
+            document.body.classList.add('order-complete');
+            orderHeader.classList.add('hidden');
             cartBar.classList.add('hidden');
             successScreen.classList.add('show');
 
