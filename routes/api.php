@@ -132,6 +132,14 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware('permission:reservations.manage')->group(function () {
             Route::post('/reservations', [ReservationController::class, 'store']);
+            Route::patch('/reservations/{reservation}', [ReservationController::class, 'update']);
+            Route::post('/reservations/{reservation}/cancel', [ReservationController::class, 'cancel']);
+        });
+
+        Route::middleware('permission:reservations.operate')->group(function () {
+            Route::post('/reservations/{reservation}/confirm', [ReservationController::class, 'confirm']);
+            Route::post('/reservations/{reservation}/check-in', [ReservationController::class, 'checkIn']);
+            Route::post('/reservations/{reservation}/no-show', [ReservationController::class, 'markNoShow']);
         });
 
         Route::post('/reservations/{reservation}/deposit', [ReservationController::class, 'addDeposit'])->middleware('permission:deposits.manage');

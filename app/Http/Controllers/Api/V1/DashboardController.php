@@ -217,7 +217,7 @@ class DashboardController extends Controller
                     $reservationWindowEnd = now()->copy()->addMinutes($reservationReminderMinutesBefore);
                     $reservationItems = Reservation::query()
                         ->with(['customer:id,name', 'table:id,code,name'])
-                        ->where('status', 'BOOKED')
+                        ->whereIn('status', ['PENDING', 'CONFIRMED', 'ARRIVED'])
                         ->where('reserved_at', '>=', now()->copy()->subHours(6))
                         ->where('reserved_at', '<=', $reservationWindowEnd)
                         ->orderBy('reserved_at')
@@ -237,7 +237,7 @@ class DashboardController extends Controller
                                     : 'Reservasi akan datang',
                                 'subtitle' => trim(($reservation->customer?->name ?? 'Pelanggan reservasi')
                                     .' · '
-                                    .($reservation->table?->code ?? 'Tanpa meja')),
+                                    .($reservation->table?->code ?? 'Meja belum ditentukan')),
                                 'customer_name' => $reservation->customer?->name,
                                 'table_code' => $reservation->table?->code,
                                 'table_name' => $reservation->table?->name,

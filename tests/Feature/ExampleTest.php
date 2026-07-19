@@ -480,7 +480,7 @@ class ExampleTest extends TestCase
             'customer_id' => $customer->id,
             'table_id' => $table->id,
             'guest_count' => 4,
-            'status' => 'BOOKED',
+            'status' => 'CONFIRMED',
             'reserved_at' => now()->subMinutes(20),
             'notes' => 'Reminder overdue test',
         ]);
@@ -561,6 +561,7 @@ class ExampleTest extends TestCase
 
         $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
         $table = Table::query()->where('code', 'T02')->firstOrFail();
+        $extraTable = Table::query()->where('code', 'T03')->firstOrFail();
 
         $customerResponse = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/customers', [
             'name' => 'Siti Aminah',
@@ -576,14 +577,28 @@ class ExampleTest extends TestCase
 
         $reservationResponse = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/reservations', [
             'customer_id' => $customerId,
+            'guest_name' => 'Siti Aminah',
+            'guest_phone' => '081298765432',
             'table_id' => $table->id,
-            'reserved_at' => now()->addDay()->toIso8601String(),
+            'extra_table_ids' => [$extraTable->id],
+            'reserved_at' => now()->addMinutes(30)->toIso8601String(),
             'guest_count' => 6,
             'notes' => 'Acara keluarga',
         ]);
 
         $reservationResponse->assertCreated();
         $reservationId = $reservationResponse->json('data.id');
+        $reservationResponse->assertJsonPath('data.status', 'PENDING');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/reservations/{$reservationId}/confirm")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'CONFIRMED');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/reservations/{$reservationId}/check-in")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'ARRIVED');
 
         $this->actingAs($cashier, 'sanctum')
             ->postJson("/api/v1/reservations/{$reservationId}/deposit", [

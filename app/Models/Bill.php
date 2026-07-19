@@ -71,6 +71,11 @@ class Bill extends Model
         return $this->belongsTo(Customer::class);
     }
 
+    public function reservation(): BelongsTo
+    {
+        return $this->belongsTo(Reservation::class);
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(BillItem::class);

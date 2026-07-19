@@ -43,4 +43,9 @@ class Table extends Model
     {
         return $this->hasMany(Reservation::class);
     }
+
+    public function linkedReservations(): BelongsToMany
+    {
+        return $this->belongsToMany(Reservation::class, 'reservation_tables')->withTimestamps();
+    }
 }

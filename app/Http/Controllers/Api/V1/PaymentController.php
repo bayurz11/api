@@ -63,6 +63,7 @@ class PaymentController extends Controller
 
             if ($bill->status === 'PAID') {
                 BillTableManager::updateBillTablesStatus($bill, 'CLEANING');
+                $this->completeReservation($bill);
             }
 
             AuditLogger::log(
@@ -126,6 +127,7 @@ class PaymentController extends Controller
 
             if ($bill->status === 'PAID') {
                 BillTableManager::updateBillTablesStatus($bill, 'CLEANING');
+                $this->completeReservation($bill);
             }
 
             AuditLogger::log(
@@ -166,6 +168,7 @@ class PaymentController extends Controller
             ]);
 
             BillTableManager::updateBillTablesStatus($bill, 'CLEANING');
+            $this->completeReservation($bill);
 
             AuditLogger::log(
                 userId: $user->id,
@@ -336,6 +339,18 @@ class PaymentController extends Controller
         );
 
         return $paymentType;
+    }
+
+    private function completeReservation(Bill $bill): void
+    {
+        if ($bill->reservation_id === null) {
+            return;
+        }
+
+        $bill->reservation()->update([
+            'status' => 'COMPLETED',
+            'completed_at' => now(),
+        ]);
     }
 
     private function toMinorUnits(mixed $amount): int
