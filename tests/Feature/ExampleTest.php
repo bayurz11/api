@@ -12,6 +12,7 @@ use App\Models\MenuOption;
 use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\Printer;
+use App\Models\PrintJob;
 use App\Models\QrOrder;
 use App\Models\Reservation;
 use App\Models\Setting;
@@ -564,15 +565,14 @@ class ExampleTest extends TestCase
         $customerResponse = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/customers', [
             'name' => 'Siti Aminah',
             'phone' => '081298765432',
-            'member_code' => 'MBR-002',
+            'member_code' => 'KODE-DARI-FRONTEND-DIABAIKAN',
             'notes' => 'Sering reservasi keluarga',
         ]);
 
-        $customerResponse
-            ->assertCreated()
-            ->assertJsonPath('data.member_code', 'MBR-002');
+        $customerResponse->assertCreated();
 
         $customerId = $customerResponse->json('data.id');
+        $customerResponse->assertJsonPath('data.member_code', sprintf('MBR-%06d', $customerId));
 
         $reservationResponse = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/reservations', [
             'customer_id' => $customerId,
@@ -610,6 +610,12 @@ class ExampleTest extends TestCase
         $this->assertDatabaseHas('deposits', [
             'reservation_id' => $reservationId,
             'bill_id' => $convertResponse->json('data.id'),
+        ]);
+        $this->assertDatabaseHas('payments', [
+            'bill_id' => $convertResponse->json('data.id'),
+            'payment_type' => 'DEPOSIT',
+            'amount' => 250000,
+            'status' => 'PAID',
         ]);
     }
 
@@ -991,6 +997,39 @@ class ExampleTest extends TestCase
             ->assertJsonPath('data.job_type', 'TEST_RECEIPT');
     }
 
+    public function test_pending_print_job_can_be_cancelled_once(): void
+    {
+        $this->seed();
+
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $job = PrintJob::query()->create([
+            'job_type' => 'PRE_BILL',
+            'reference_type' => 'bill',
+            'reference_id' => 1,
+            'status' => 'PENDING',
+            'attempt_count' => 0,
+        ]);
+
+        $this->actingAs($cashier, 'sanctum')
+            ->patchJson("/api/v1/print-jobs/{$job->id}/cancel")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'CANCELLED');
+
+        $this->assertDatabaseHas('print_jobs', [
+            'id' => $job->id,
+            'status' => 'CANCELLED',
+            'cancelled_by' => $cashier->id,
+        ]);
+
+        $this->actingAs($cashier, 'sanctum')
+            ->patchJson("/api/v1/print-jobs/{$job->id}/cancel")
+            ->assertUnprocessable()
+            ->assertJsonPath(
+                'message',
+                'Hanya antrean cetak yang masih menunggu yang dapat dibatalkan.',
+            );
+    }
+
     /**
      * Verify restaurant profile can be updated and final receipt PDF downloaded.
      */
@@ -1273,20 +1312,20 @@ class ExampleTest extends TestCase
         $customerResponse = $this->actingAs($owner, 'sanctum')->postJson('/api/v1/customers', [
             'name' => 'Budi CRUD',
             'phone' => '081200000001',
-            'member_code' => 'MBR-CRUD',
         ]);
 
-        $customerResponse
-            ->assertCreated()
-            ->assertJsonPath('data.member_code', 'MBR-CRUD');
+        $customerResponse->assertCreated();
 
         $customerId = $customerResponse->json('data.id');
+        $customerResponse->assertJsonPath('data.member_code', sprintf('MBR-%06d', $customerId));
 
         $this->actingAs($owner, 'sanctum')->patchJson("/api/v1/customers/{$customerId}", [
             'email' => 'budi@example.com',
+            'member_code' => 'KODE-TIDAK-BOLEH-DIUBAH',
             'reward_points' => 10,
         ])->assertOk()
             ->assertJsonPath('data.email', 'budi@example.com')
+            ->assertJsonPath('data.member_code', sprintf('MBR-%06d', $customerId))
             ->assertJsonPath('data.reward_points', 10);
 
         $this->actingAs($owner, 'sanctum')->deleteJson("/api/v1/menus/{$menuId}")
@@ -2456,6 +2495,108 @@ class ExampleTest extends TestCase
             ->assertJsonPath('reminders.settings.event_reminder_minutes_before', 1440)
             ->assertJsonPath('reminders.summary.event_due_count', 1)
             ->assertJsonPath('reminders.items.0.type', 'event');
+    }
+
+    public function test_catering_deposit_and_settlement_follow_advance_payment_rules(): void
+    {
+        $this->seed();
+
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $food = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+        $eventAt = now()->addDays(10)->setTime(12, 0);
+        $dueAt = now()->addHours(2);
+
+        $billResponse = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'CATERING',
+            'customer_name' => 'Katering Keluarga Budi',
+            'guest_count' => 20,
+            'event_scheduled_at' => $eventAt->toIso8601String(),
+            'deposit_required_percent' => 30,
+            'payment_due_at' => $dueAt->toIso8601String(),
+            'cancellation_policy' => 'DP tidak dikembalikan setelah H-2.',
+        ]);
+
+        $billResponse
+            ->assertCreated()
+            ->assertJsonPath('data.deposit_required_percent', 30)
+            ->assertJsonPath('data.cancellation_policy', 'DP tidak dikembalikan setelah H-2.');
+
+        $billId = $billResponse->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')->patchJson("/api/v1/bills/{$billId}", [
+            'payment_due_at' => $eventAt->copy()->addHour()->toIso8601String(),
+        ])
+            ->assertStatus(422)
+            ->assertJsonFragment([
+                'message' => 'Jatuh tempo pelunasan tidak boleh setelah waktu acara.',
+            ]);
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [
+                ['menu_id' => $food->id, 'qty' => 2],
+            ],
+        ])->assertCreated();
+
+        Setting::setValue('event_reminders_enabled', '1', 'reminders');
+        Setting::setValue('event_reminder_minutes_before', '1440', 'reminders');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->getJson('/api/v1/dashboard')
+            ->assertOk()
+            ->assertJsonPath('reminders.summary.event_payment_due_count', 1)
+            ->assertJsonPath('reminders.items.0.type', 'event_payment')
+            ->assertJsonPath('reminders.items.0.action_route', "/bills/{$billId}/payments");
+
+        $depositResponse = $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/payments", [
+            'payment_method' => 'TRANSFER',
+            'payment_type' => 'DEPOSIT',
+            'amount' => 20000,
+            'reference_no' => 'DP-EVENT-001',
+        ]);
+
+        $depositResponse
+            ->assertCreated()
+            ->assertJsonPath('data.payment_type', 'DEPOSIT')
+            ->assertJsonPath('bill.status', 'PARTIALLY_PAID')
+            ->assertJsonPath('summary.advance_payment.is_applicable', true)
+            ->assertJsonPath('summary.advance_payment.deposit_required_percent', 30)
+            ->assertJsonPath('summary.advance_payment.deposit_status', 'COMPLETE');
+
+        $balanceDue = (float) $depositResponse->json('bill.balance_due');
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/payments", [
+            'payment_method' => 'TRANSFER',
+            'payment_type' => 'SETTLEMENT',
+            'amount' => $balanceDue - 1000,
+        ])->assertStatus(422);
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/payments", [
+            'payment_method' => 'TRANSFER',
+            'payment_type' => 'SETTLEMENT',
+            'amount' => $balanceDue,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.payment_type', 'SETTLEMENT')
+            ->assertJsonPath('bill.status', 'PAID')
+            ->assertJsonPath('bill.balance_due', '0.00');
+
+        $takeAwayBillId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'TAKE_AWAY',
+            'customer_name' => 'Pelanggan Biasa',
+            'guest_count' => 1,
+        ])->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$takeAwayBillId}/orders", [
+            'items' => [
+                ['menu_id' => $food->id, 'qty' => 1],
+            ],
+        ])->assertCreated();
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$takeAwayBillId}/payments", [
+            'payment_method' => 'CASH',
+            'payment_type' => 'DEPOSIT',
+            'amount' => 10000,
+        ])->assertStatus(422);
     }
 
     public function test_menu_options_can_be_managed_and_ordered(): void

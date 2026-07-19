@@ -14,6 +14,7 @@ class Payment extends Model
         'bill_id',
         'payment_no',
         'payment_method',
+        'payment_type',
         'amount',
         'reference_no',
         'paid_by',

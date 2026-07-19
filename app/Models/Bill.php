@@ -32,6 +32,9 @@ class Bill extends Model
         'balance_due',
         'opened_at',
         'event_scheduled_at',
+        'deposit_required_percent',
+        'payment_due_at',
+        'cancellation_policy',
         'closed_at',
     ];
 
@@ -47,6 +50,8 @@ class Bill extends Model
             'balance_due' => 'decimal:2',
             'opened_at' => 'datetime',
             'event_scheduled_at' => 'datetime',
+            'deposit_required_percent' => 'integer',
+            'payment_due_at' => 'datetime',
             'closed_at' => 'datetime',
         ];
     }

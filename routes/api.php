@@ -187,6 +187,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/print/receipt', [PrintController::class, 'receipt']);
         });
 
+        Route::patch('/print-jobs/{printJob}/cancel', [PrintController::class, 'cancel'])
+            ->middleware('permission:prints.cancel');
+
         Route::get('/waiter/ready-items', [WaiterChecklistController::class, 'readyItems'])->middleware('permission:orders.serve');
         Route::get('/kitchen/orders', [KitchenController::class, 'index'])->middleware('permission:orders.update-status');
         Route::get('/bar/orders', [BarController::class, 'index'])->middleware('permission:orders.update-status');

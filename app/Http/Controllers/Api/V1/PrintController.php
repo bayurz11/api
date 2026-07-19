@@ -265,6 +265,45 @@ class PrintController extends Controller
         return response()->json($jobs);
     }
 
+    public function cancel(Request $request, PrintJob $printJob): JsonResponse
+    {
+        $job = DB::transaction(function () use ($request, $printJob): PrintJob {
+            $lockedJob = PrintJob::query()
+                ->lockForUpdate()
+                ->findOrFail($printJob->id);
+
+            abort_unless(
+                strtoupper($lockedJob->status) === 'PENDING',
+                422,
+                'Hanya antrean cetak yang masih menunggu yang dapat dibatalkan.',
+            );
+
+            $before = $lockedJob->toArray();
+            $lockedJob->update([
+                'status' => 'CANCELLED',
+                'cancelled_at' => now(),
+                'cancelled_by' => $request->user()->id,
+            ]);
+
+            AuditLogger::log(
+                userId: $request->user()->id,
+                roleName: $request->user()->getRoleNames()->first(),
+                action: 'print_job.cancelled',
+                entityType: 'print_job',
+                entityId: $lockedJob->id,
+                before: $before,
+                after: $lockedJob->fresh()->toArray(),
+            );
+
+            return $lockedJob->fresh('printer:id,name,station_type');
+        });
+
+        return response()->json([
+            'message' => 'Antrean cetak berhasil dibatalkan.',
+            'data' => $job,
+        ]);
+    }
+
     public function testPrinter(Request $request, Printer $printer): JsonResponse
     {
         abort_if(! $printer->is_active, 422, 'Printer tidak aktif.');

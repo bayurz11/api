@@ -72,6 +72,9 @@ class BillController extends Controller
             'customer_name' => ['nullable', 'string', 'max:255'],
             'guest_count' => ['nullable', 'integer', 'min:1'],
             'event_scheduled_at' => ['nullable', 'date'],
+            'deposit_required_percent' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'payment_due_at' => ['nullable', 'date', 'before_or_equal:event_scheduled_at'],
+            'cancellation_policy' => ['nullable', 'string', 'max:2000'],
         ]);
 
         $this->validateBillCreationRules($validated);
@@ -102,6 +105,15 @@ class BillController extends Controller
                 'status' => 'OPEN',
                 'opened_at' => now(),
                 'event_scheduled_at' => $validated['event_scheduled_at'] ?? null,
+                'deposit_required_percent' => $validated['bill_type'] === 'CATERING'
+                    ? ($validated['deposit_required_percent'] ?? 30)
+                    : null,
+                'payment_due_at' => $validated['bill_type'] === 'CATERING'
+                    ? ($validated['payment_due_at'] ?? $validated['event_scheduled_at'])
+                    : null,
+                'cancellation_policy' => $validated['bill_type'] === 'CATERING'
+                    ? ($validated['cancellation_policy'] ?? null)
+                    : null,
             ]);
 
             if ($linkedTableIds !== []) {
@@ -177,6 +189,9 @@ class BillController extends Controller
             'tax_total' => ['nullable', 'numeric', 'min:0'],
             'service_total' => ['nullable', 'numeric', 'min:0'],
             'event_scheduled_at' => ['nullable', 'date'],
+            'deposit_required_percent' => ['nullable', 'integer', 'min:0', 'max:100'],
+            'payment_due_at' => ['nullable', 'date'],
+            'cancellation_policy' => ['nullable', 'string', 'max:2000'],
         ]);
 
         $user = $request->user();
@@ -190,6 +205,9 @@ class BillController extends Controller
             'grand_total',
             'balance_due',
             'event_scheduled_at',
+            'deposit_required_percent',
+            'payment_due_at',
+            'cancellation_policy',
         ]);
 
         $bill = DB::transaction(function () use ($bill, $validated) {
@@ -203,7 +221,24 @@ class BillController extends Controller
                 'event_scheduled_at' => array_key_exists('event_scheduled_at', $validated)
                     ? $validated['event_scheduled_at']
                     : $bill->event_scheduled_at,
+                'deposit_required_percent' => $validated['deposit_required_percent'] ?? $bill->deposit_required_percent,
+                'payment_due_at' => array_key_exists('payment_due_at', $validated)
+                    ? $validated['payment_due_at']
+                    : $bill->payment_due_at,
+                'cancellation_policy' => array_key_exists('cancellation_policy', $validated)
+                    ? $validated['cancellation_policy']
+                    : $bill->cancellation_policy,
             ]);
+
+            abort_if(
+                $bill->bill_type === 'CATERING'
+                    && $bill->payment_due_at
+                    && $bill->event_scheduled_at
+                    && $bill->payment_due_at->gt($bill->event_scheduled_at),
+                422,
+                'Jatuh tempo pelunasan tidak boleh setelah waktu acara.',
+            );
+
             $bill->save();
 
             return BillTotals::recalculate($bill);
@@ -226,6 +261,9 @@ class BillController extends Controller
                 'grand_total',
                 'balance_due',
                 'event_scheduled_at',
+                'deposit_required_percent',
+                'payment_due_at',
+                'cancellation_policy',
             ]),
         );
 

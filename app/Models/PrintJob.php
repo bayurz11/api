@@ -19,12 +19,15 @@ class PrintJob extends Model
         'status',
         'attempt_count',
         'printed_at',
+        'cancelled_at',
+        'cancelled_by',
     ];
 
     protected function casts(): array
     {
         return [
             'printed_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 

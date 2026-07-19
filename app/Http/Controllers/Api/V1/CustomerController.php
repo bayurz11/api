@@ -7,7 +7,7 @@ use App\Models\Customer;
 use App\Support\AuditLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
 
 class CustomerController extends Controller
 {
@@ -38,14 +38,20 @@ class CustomerController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:255'],
-            'member_code' => ['nullable', 'string', 'max:50', 'unique:customers,member_code'],
             'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $customer = Customer::query()->create([
-            ...$validated,
-            'reward_points' => 0,
-        ]);
+        $customer = DB::transaction(function () use ($validated): Customer {
+            $customer = Customer::query()->create([
+                ...$validated,
+                'reward_points' => 0,
+            ]);
+            $customer->update([
+                'member_code' => sprintf('MBR-%06d', $customer->id),
+            ]);
+
+            return $customer;
+        });
 
         AuditLogger::log(
             userId: $request->user()->id,
@@ -87,7 +93,6 @@ class CustomerController extends Controller
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:255'],
-            'member_code' => ['nullable', 'string', 'max:50', Rule::unique('customers', 'member_code')->ignore($customer->id)],
             'notes' => ['nullable', 'string', 'max:1000'],
             'reward_points' => ['sometimes', 'integer', 'min:0'],
         ]);

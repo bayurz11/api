@@ -5,13 +5,16 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Bill;
 use App\Models\Deposit;
+use App\Models\Payment;
 use App\Models\Reservation;
 use App\Support\AuditLogger;
 use App\Support\BillTableManager;
+use App\Support\BillTotals;
 use App\Support\SequenceNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class ReservationController extends Controller
 {
@@ -67,12 +70,18 @@ class ReservationController extends Controller
     {
         $validated = $request->validate([
             'amount' => ['required', 'numeric', 'min:1'],
+            'payment_method' => ['nullable', 'string', Rule::in(['CASH', 'QRIS_MANUAL', 'TRANSFER', 'DEBIT', 'KREDIT', 'VOUCHER'])],
+            'reference_no' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $deposit = Deposit::query()->create([
             'reservation_id' => $reservation->id,
             'customer_id' => $reservation->customer_id,
             'amount' => $validated['amount'],
+            'payment_method' => $validated['payment_method'] ?? 'CASH',
+            'reference_no' => $validated['reference_no'] ?? null,
+            'notes' => $validated['notes'] ?? null,
             'received_by' => $request->user()->id,
             'received_at' => now(),
             'status' => 'PAID',
@@ -129,7 +138,33 @@ class ReservationController extends Controller
                 BillTableManager::updateBillTablesStatus($bill, 'OPEN_BILL');
             }
 
-            $reservation->deposits()->update(['bill_id' => $bill->id]);
+            $reservation->deposits()
+                ->where('status', 'PAID')
+                ->get()
+                ->each(function (Deposit $deposit) use ($bill): void {
+                    $payment = $deposit->payment;
+
+                    if ($payment === null) {
+                        $payment = Payment::query()->create([
+                            'bill_id' => $bill->id,
+                            'payment_no' => SequenceNumber::generate('PAY', Payment::class, 'payment_no'),
+                            'payment_method' => $deposit->payment_method ?? 'CASH',
+                            'payment_type' => 'DEPOSIT',
+                            'amount' => $deposit->amount,
+                            'reference_no' => $deposit->reference_no,
+                            'paid_by' => $deposit->received_by,
+                            'paid_at' => $deposit->received_at ?? now(),
+                            'status' => 'PAID',
+                        ]);
+                    }
+
+                    $deposit->update([
+                        'bill_id' => $bill->id,
+                        'payment_id' => $payment->id,
+                    ]);
+                });
+
+            $bill = BillTotals::recalculate($bill);
 
             AuditLogger::log(
                 userId: $request->user()->id,

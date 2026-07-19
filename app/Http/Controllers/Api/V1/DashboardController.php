@@ -266,6 +266,7 @@ class DashboardController extends Controller
                 }
 
                 $eventItems = collect();
+                $eventPaymentItems = collect();
                 if ($eventRemindersEnabled) {
                     $eventWindowEnd = now()->copy()->addMinutes($eventReminderMinutesBefore);
                     $eventItems = Bill::query()
@@ -311,10 +312,48 @@ class DashboardController extends Controller
                         ])
                         ->take($dashboardReminderLimit)
                         ->values();
+
+                    $eventPaymentItems = Bill::query()
+                        ->with(['customer:id,name'])
+                        ->where('bill_type', 'CATERING')
+                        ->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID', 'SERVED'])
+                        ->where('balance_due', '>', 0)
+                        ->whereNotNull('payment_due_at')
+                        ->where('payment_due_at', '>=', now()->copy()->subDays(7))
+                        ->where('payment_due_at', '<=', $eventWindowEnd)
+                        ->orderBy('payment_due_at')
+                        ->get()
+                        ->map(function (Bill $bill) {
+                            $minutesRemaining = now()->diffInMinutes($bill->payment_due_at, false);
+
+                            return [
+                                'type' => 'event_payment',
+                                'id' => $bill->id,
+                                'code' => $bill->bill_no,
+                                'title' => $minutesRemaining < 0
+                                    ? 'Pelunasan event terlambat'
+                                    : 'Pelunasan event mendekat',
+                                'subtitle' => (($bill->customer?->name ?: $bill->customer_name) ?: 'Pelanggan event')
+                                    .' | Sisa Rp '.number_format((float) $bill->balance_due, 0, ',', '.'),
+                                'customer_name' => $bill->customer?->name ?: $bill->customer_name,
+                                'table_code' => null,
+                                'table_name' => null,
+                                'guest_count' => (int) $bill->guest_count,
+                                'status' => $bill->status,
+                                'scheduled_at' => optional($bill->payment_due_at)->toIso8601String(),
+                                'minutes_remaining' => $minutesRemaining,
+                                'priority' => $minutesRemaining < 0 ? 'overdue' : ($minutesRemaining <= 120 ? 'soon' : 'upcoming'),
+                                'notes' => $bill->cancellation_policy,
+                                'action_route' => "/bills/{$bill->id}/payments",
+                            ];
+                        })
+                        ->take($dashboardReminderLimit)
+                        ->values();
                 }
 
                 $reminderItems = $reservationItems
                     ->concat($eventItems)
+                    ->concat($eventPaymentItems)
                     ->sortBy('scheduled_at')
                     ->take(max(1, $dashboardReminderLimit))
                     ->values();
@@ -378,6 +417,7 @@ class DashboardController extends Controller
                             'reservation_due_count' => $reservationItems->count(),
                             'reservation_overdue_count' => $reservationOverdueCount,
                             'event_due_count' => $eventItems->count(),
+                            'event_payment_due_count' => $eventPaymentItems->count(),
                             'total_due_count' => $reminderItems->count(),
                         ],
                         'items' => $reminderItems->all(),

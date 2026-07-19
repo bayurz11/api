@@ -50,6 +50,7 @@ class RoleAndPermissionSeeder extends Seeder
             'payments.void',
             'prints.view',
             'prints.create',
+            'prints.cancel',
             'reports.view',
         ];
 
@@ -87,6 +88,7 @@ class RoleAndPermissionSeeder extends Seeder
                 'payments.void',
                 'prints.view',
                 'prints.create',
+                'prints.cancel',
             ],
             'Waiter' => [
                 'auth.login',

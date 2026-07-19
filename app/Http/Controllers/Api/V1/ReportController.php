@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Bill;
 use App\Models\Payment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -130,6 +131,9 @@ class ReportController extends Controller
     public function exportSalesSummaryExcel(Request $request): BinaryFileResponse
     {
         $payload = $this->buildSalesSummaryPayload($request);
+        $payload['transactions'] = $this->buildSalesTransactions($payload['filters']);
+        $payload['restaurant'] = RestaurantProfileController::profilePayload();
+        $payload['generated_at'] = now()->toDateTimeString();
         $fileName = sprintf(
             'sales-summary-%s-to-%s.xlsx',
             $payload['filters']['date_from'],
@@ -148,6 +152,65 @@ class ReportController extends Controller
             $fileName,
             ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
         )->deleteFileAfterSend(true);
+    }
+
+    private function buildSalesTransactions(array $filters): array
+    {
+        $rangeStart = Carbon::parse($filters['date_from'])->startOfDay();
+        $rangeEnd = Carbon::parse($filters['date_to'])->addDay()->startOfDay();
+
+        return Bill::query()
+            ->with([
+                'table:id,code,name',
+                'customer:id,name',
+                'payments' => fn ($query) => $query
+                    ->where('paid_at', '>=', $rangeStart)
+                    ->where('paid_at', '<', $rangeEnd)
+                    ->orderBy('paid_at'),
+            ])
+            ->whereHas('payments', fn ($query) => $query
+                ->where('paid_at', '>=', $rangeStart)
+                ->where('paid_at', '<', $rangeEnd))
+            ->orderBy('closed_at')
+            ->orderBy('id')
+            ->get()
+            ->map(function (Bill $bill): array {
+                $paidPayments = $bill->payments->where('status', 'PAID');
+                $refundPayments = $bill->payments->where('status', 'REFUND');
+                $voidPayments = $bill->payments->where('status', 'VOID');
+                $grossPaid = (float) $paidPayments->sum('amount');
+                $refundTotal = (float) $refundPayments->sum('amount');
+
+                return [
+                    'paid_at' => optional($bill->payments->max('paid_at'))->toDateTimeString(),
+                    'bill_no' => $bill->bill_no,
+                    'bill_type' => $bill->bill_type,
+                    'table' => $bill->table
+                        ? trim($bill->table->code.' - '.$bill->table->name)
+                        : 'Tanpa meja',
+                    'customer_name' => $bill->customer?->name
+                        ?: $bill->customer_name
+                        ?: 'Pelanggan umum',
+                    'guest_count' => (int) $bill->guest_count,
+                    'payment_methods' => $paidPayments
+                        ->pluck('payment_method')
+                        ->filter()
+                        ->unique()
+                        ->implode(', '),
+                    'subtotal' => (float) $bill->subtotal,
+                    'discount_total' => (float) $bill->discount_total,
+                    'tax_total' => (float) $bill->tax_total,
+                    'service_total' => (float) $bill->service_total,
+                    'grand_total' => (float) $bill->grand_total,
+                    'gross_paid' => $grossPaid,
+                    'refund_total' => $refundTotal,
+                    'void_total' => (float) $voidPayments->sum('amount'),
+                    'net_sales' => $grossPaid - $refundTotal,
+                    'status' => $bill->status,
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     private function sanitizeSpreadsheetCell(mixed $value): mixed
@@ -619,28 +682,402 @@ class ReportController extends Controller
         $result = $archive->open($targetPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
         abort_if($result !== true, 500, 'Gagal membuat file Excel laporan penjualan.');
 
-        $rows = $this->buildSalesSummaryRows($payload);
+        $sheets = $this->buildSalesSummarySheets($payload);
 
-        $archive->addFromString('[Content_Types].xml', $this->contentTypesXml());
+        $archive->addFromString('[Content_Types].xml', $this->contentTypesXml(count($sheets)));
         $archive->addFromString('_rels/.rels', $this->rootRelationshipsXml());
-        $archive->addFromString('docProps/app.xml', $this->appPropertiesXml());
+        $archive->addFromString('docProps/app.xml', $this->appPropertiesXml($sheets));
         $archive->addFromString('docProps/core.xml', $this->corePropertiesXml());
-        $archive->addFromString('xl/workbook.xml', $this->workbookXml());
-        $archive->addFromString('xl/_rels/workbook.xml.rels', $this->workbookRelationshipsXml());
+        $archive->addFromString('xl/workbook.xml', $this->workbookXml($sheets));
+        $archive->addFromString('xl/_rels/workbook.xml.rels', $this->workbookRelationshipsXml($sheets));
         $archive->addFromString('xl/styles.xml', $this->stylesXml());
-        $archive->addFromString('xl/worksheets/sheet1.xml', $this->worksheetXml($rows));
+
+        foreach ($sheets as $index => $sheet) {
+            $archive->addFromString(
+                sprintf('xl/worksheets/sheet%d.xml', $index + 1),
+                $this->worksheetXml($sheet),
+            );
+        }
+
         $archive->close();
     }
 
-    private function contentTypesXml(): string
+    private function buildSalesSummarySheets(array $payload): array
     {
-        return <<<'XML'
+        $restaurantName = trim((string) ($payload['restaurant']['restaurant_name'] ?? 'Warung Babeh'));
+        $period = sprintf(
+            'Periode %s s.d. %s',
+            Carbon::parse($payload['filters']['date_from'])->format('d/m/Y'),
+            Carbon::parse($payload['filters']['date_to'])->format('d/m/Y'),
+        );
+        $generatedAt = Carbon::parse($payload['generated_at'])->format('d/m/Y H:i');
+
+        $summaryLabels = [
+            'gross_sales' => 'Penjualan Kotor',
+            'refund_total' => 'Pengembalian Dana',
+            'void_total' => 'Pembayaran Dibatalkan',
+            'net_sales' => 'Penjualan Bersih',
+            'purchase_total' => 'Total Belanja Stok',
+            'estimated_cogs' => 'Estimasi HPP',
+            'estimated_profit' => 'Estimasi Laba Kotor',
+            'paid_bills_count' => 'Jumlah Tagihan Lunas',
+            'refunded_bills_count' => 'Jumlah Tagihan Refund',
+            'average_bill' => 'Rata-rata Nilai Tagihan',
+        ];
+        $countMetrics = ['paid_bills_count', 'refunded_bills_count'];
+        $previous = $payload['comparison']['previous_period'];
+        $summaryRows = [
+            [$this->xlsxCell('LAPORAN PENJUALAN', 1)],
+            [$this->xlsxCell($restaurantName, 2)],
+            [$this->xlsxCell($period, 13)],
+            [$this->xlsxCell('Dibuat pada '.$generatedAt.' WIB', 13)],
+            [],
+            [$this->xlsxCell('RINGKASAN UTAMA', 3)],
+            [
+                $this->xlsxCell('Indikator', 4),
+                $this->xlsxCell('Periode Ini', 4),
+                $this->xlsxCell('Periode Sebelumnya', 4),
+                $this->xlsxCell('Selisih', 4),
+                $this->xlsxCell('Perubahan', 4),
+            ],
+        ];
+
+        foreach ($summaryLabels as $key => $label) {
+            $currentValue = (float) ($payload['summary'][$key] ?? 0);
+            $previousValue = (float) ($previous[$key] ?? 0);
+            $delta = $currentValue - $previousValue;
+            $deltaPercent = $previousValue == 0.0
+                ? ($currentValue == 0.0 ? 0.0 : 1.0)
+                : $delta / $previousValue;
+            $numberStyle = in_array($key, $countMetrics, true) ? 6 : 5;
+
+            $summaryRows[] = [
+                $this->xlsxCell($label, 8),
+                $this->xlsxNumber($currentValue, $numberStyle),
+                $this->xlsxNumber($previousValue, $numberStyle),
+                $this->xlsxNumber($delta, $numberStyle),
+                $this->xlsxNumber($deltaPercent, 7),
+            ];
+        }
+
+        $summaryRows[] = [];
+        $summaryRows[] = [$this->xlsxCell('CATATAN', 3)];
+        $summaryRows[] = [
+            $this->xlsxCell(
+                'Estimasi HPP dan laba memakai harga modal stok yang tercatat. Pastikan transaksi stok diperbarui agar laporan akurat.',
+                13,
+            ),
+        ];
+
+        $transactionRows = $this->sheetIntroRows(
+            'RINCIAN TRANSAKSI',
+            $restaurantName,
+            $period,
+            $generatedAt,
+        );
+        $transactionRows[] = [
+            $this->xlsxCell('No.', 4),
+            $this->xlsxCell('Waktu Bayar', 4),
+            $this->xlsxCell('Nomor Tagihan', 4),
+            $this->xlsxCell('Tipe Pesanan', 4),
+            $this->xlsxCell('Meja', 4),
+            $this->xlsxCell('Pelanggan', 4),
+            $this->xlsxCell('Tamu', 4),
+            $this->xlsxCell('Metode Bayar', 4),
+            $this->xlsxCell('Subtotal', 4),
+            $this->xlsxCell('Diskon', 4),
+            $this->xlsxCell('Pajak', 4),
+            $this->xlsxCell('Layanan', 4),
+            $this->xlsxCell('Total Tagihan', 4),
+            $this->xlsxCell('Dibayar', 4),
+            $this->xlsxCell('Refund', 4),
+            $this->xlsxCell('Penjualan Bersih', 4),
+            $this->xlsxCell('Status', 4),
+        ];
+        foreach ($payload['transactions'] as $index => $row) {
+            $transactionRows[] = [
+                $this->xlsxNumber($index + 1, 6),
+                $this->xlsxCell($row['paid_at'] ? Carbon::parse($row['paid_at'])->format('d/m/Y H:i') : '-', 8),
+                $this->xlsxCell($row['bill_no'], 8),
+                $this->xlsxCell($this->billTypeLabel($row['bill_type']), 8),
+                $this->xlsxCell($row['table'], 8),
+                $this->xlsxCell($row['customer_name'], 8),
+                $this->xlsxNumber($row['guest_count'], 6),
+                $this->xlsxCell($this->paymentMethodListLabel($row['payment_methods']), 8),
+                $this->xlsxNumber($row['subtotal'], 5),
+                $this->xlsxNumber($row['discount_total'], 5),
+                $this->xlsxNumber($row['tax_total'], 5),
+                $this->xlsxNumber($row['service_total'], 5),
+                $this->xlsxNumber($row['grand_total'], 5),
+                $this->xlsxNumber($row['gross_paid'], 5),
+                $this->xlsxNumber($row['refund_total'], 5),
+                $this->xlsxNumber($row['net_sales'], 5),
+                $this->xlsxCell($this->statusLabel($row['status']), 8),
+            ];
+        }
+
+        $dailyRows = $this->sheetIntroRows('TREN HARIAN', $restaurantName, $period, $generatedAt);
+        $dailyRows[] = [
+            $this->xlsxCell('Tanggal', 4),
+            $this->xlsxCell('Penjualan Kotor', 4),
+            $this->xlsxCell('Refund', 4),
+            $this->xlsxCell('Penjualan Bersih', 4),
+            $this->xlsxCell('Tagihan Lunas', 4),
+        ];
+        foreach ($payload['daily_trend'] as $row) {
+            $dailyRows[] = [
+                $this->xlsxCell(Carbon::parse($row['date'])->format('d/m/Y'), 8),
+                $this->xlsxNumber($row['gross_total'], 5),
+                $this->xlsxNumber($row['refund_total'], 5),
+                $this->xlsxNumber($row['net_total'], 5),
+                $this->xlsxNumber($row['paid_bills_count'], 6),
+            ];
+        }
+
+        $menuRows = $this->sheetIntroRows('MENU & KATEGORI', $restaurantName, $period, $generatedAt);
+        $menuRows[] = [$this->xlsxCell('MENU TERLARIS', 3)];
+        $menuRows[] = [
+            $this->xlsxCell('Peringkat', 4),
+            $this->xlsxCell('Nama Menu', 4),
+            $this->xlsxCell('Jumlah Terjual', 4),
+            $this->xlsxCell('Omzet', 4),
+        ];
+        foreach ($payload['top_items'] as $index => $row) {
+            $menuRows[] = [
+                $this->xlsxNumber($index + 1, 6),
+                $this->xlsxCell($row['menu_name'], 8),
+                $this->xlsxNumber($row['total_qty'], 6),
+                $this->xlsxNumber($row['gross_total'], 5),
+            ];
+        }
+        $menuRows[] = [];
+        $menuRows[] = [$this->xlsxCell('PENJUALAN PER KATEGORI', 3)];
+        $menuRows[] = [
+            $this->xlsxCell('Kategori', 4),
+            $this->xlsxCell('Jumlah Tagihan', 4),
+            $this->xlsxCell('Jumlah Item', 4),
+            $this->xlsxCell('Omzet', 4),
+        ];
+        foreach ($payload['category_sales'] as $row) {
+            $menuRows[] = [
+                $this->xlsxCell($row['category_name'], 8),
+                $this->xlsxNumber($row['bills_count'], 6),
+                $this->xlsxNumber($row['total_qty'], 6),
+                $this->xlsxNumber($row['gross_total'], 5),
+            ];
+        }
+
+        $analysisRows = $this->sheetIntroRows('ANALISIS OPERASIONAL', $restaurantName, $period, $generatedAt);
+        $analysisRows[] = [$this->xlsxCell('METODE PEMBAYARAN', 3)];
+        $analysisRows[] = [
+            $this->xlsxCell('Metode', 4),
+            $this->xlsxCell('Transaksi', 4),
+            $this->xlsxCell('Penjualan Kotor', 4),
+            $this->xlsxCell('Refund', 4),
+            $this->xlsxCell('Void', 4),
+            $this->xlsxCell('Penjualan Bersih', 4),
+        ];
+        foreach ($payload['payment_methods'] as $row) {
+            $analysisRows[] = [
+                $this->xlsxCell($this->paymentMethodLabel($row['payment_method']), 8),
+                $this->xlsxNumber($row['payments_count'], 6),
+                $this->xlsxNumber($row['gross_total'], 5),
+                $this->xlsxNumber($row['refund_total'], 5),
+                $this->xlsxNumber($row['void_total'], 5),
+                $this->xlsxNumber($row['net_total'], 5),
+            ];
+        }
+        $analysisRows[] = [];
+        $analysisRows[] = [$this->xlsxCell('TIPE PESANAN', 3)];
+        $analysisRows[] = [
+            $this->xlsxCell('Tipe', 4),
+            $this->xlsxCell('Jumlah Tagihan', 4),
+            $this->xlsxCell('Omzet', 4),
+        ];
+        foreach ($payload['bill_types'] as $row) {
+            $analysisRows[] = [
+                $this->xlsxCell($this->billTypeLabel($row['bill_type']), 8),
+                $this->xlsxNumber($row['bills_count'], 6),
+                $this->xlsxNumber($row['gross_total'], 5),
+            ];
+        }
+        $analysisRows[] = [];
+        $analysisRows[] = [$this->xlsxCell('MEJA PALING AKTIF', 3)];
+        $analysisRows[] = [
+            $this->xlsxCell('Kode', 4),
+            $this->xlsxCell('Nama Meja', 4),
+            $this->xlsxCell('Jumlah Tagihan', 4),
+            $this->xlsxCell('Omzet', 4),
+        ];
+        foreach ($payload['top_tables'] as $row) {
+            $analysisRows[] = [
+                $this->xlsxCell($row['table_code'] ?? '-', 8),
+                $this->xlsxCell($row['table_name'] ?? 'Tanpa meja', 8),
+                $this->xlsxNumber($row['bills_count'], 6),
+                $this->xlsxNumber($row['gross_total'], 5),
+            ];
+        }
+        $analysisRows[] = [];
+        $analysisRows[] = [$this->xlsxCell('JAM RAMAI', 3)];
+        $analysisRows[] = [
+            $this->xlsxCell('Rentang Jam', 4),
+            $this->xlsxCell('Jumlah Tagihan', 4),
+            $this->xlsxCell('Omzet', 4),
+        ];
+        foreach ($payload['hourly_trend'] as $row) {
+            $analysisRows[] = [
+                $this->xlsxCell($row['hour_label'], 8),
+                $this->xlsxNumber($row['paid_bills_count'], 6),
+                $this->xlsxNumber($row['gross_total'], 5),
+            ];
+        }
+        $analysisRows[] = [];
+        $analysisRows[] = [$this->xlsxCell('PELANGGAN UTAMA', 3)];
+        $analysisRows[] = [
+            $this->xlsxCell('Pelanggan', 4),
+            $this->xlsxCell('Jumlah Tagihan', 4),
+            $this->xlsxCell('Omzet', 4),
+            $this->xlsxCell('Rata-rata Tagihan', 4),
+        ];
+        foreach ($payload['top_customers'] as $row) {
+            $analysisRows[] = [
+                $this->xlsxCell($row['customer_name'], 8),
+                $this->xlsxNumber($row['bills_count'], 6),
+                $this->xlsxNumber($row['gross_total'], 5),
+                $this->xlsxNumber($row['average_bill'], 5),
+            ];
+        }
+
+        return [
+            [
+                'name' => 'Ringkasan',
+                'rows' => $summaryRows,
+                'widths' => [34, 20, 20, 20, 16],
+                'merges' => ['A1:E1', 'A2:E2', 'A3:E3', 'A4:E4', 'A6:E6', 'A19:E19', 'A20:E20'],
+                'freeze_row' => 7,
+            ],
+            [
+                'name' => 'Transaksi',
+                'rows' => $transactionRows,
+                'widths' => [8, 20, 28, 18, 20, 26, 10, 22, 18, 16, 16, 16, 20, 18, 18, 20, 16],
+                'merges' => ['A1:Q1', 'A2:Q2', 'A3:Q3', 'A4:Q4'],
+                'freeze_row' => 6,
+                'auto_filter' => 'A5:Q'.max(5, count($transactionRows)),
+                'landscape' => true,
+            ],
+            [
+                'name' => 'Tren Harian',
+                'rows' => $dailyRows,
+                'widths' => [18, 22, 18, 22, 18],
+                'merges' => ['A1:E1', 'A2:E2', 'A3:E3', 'A4:E4'],
+                'freeze_row' => 6,
+                'auto_filter' => 'A5:E'.max(5, count($dailyRows)),
+            ],
+            [
+                'name' => 'Menu & Kategori',
+                'rows' => $menuRows,
+                'widths' => [16, 36, 20, 22],
+                'merges' => ['A1:D1', 'A2:D2', 'A3:D3', 'A4:D4'],
+                'freeze_row' => 7,
+            ],
+            [
+                'name' => 'Analisis Operasional',
+                'rows' => $analysisRows,
+                'widths' => [28, 20, 22, 22, 18, 22],
+                'merges' => ['A1:F1', 'A2:F2', 'A3:F3', 'A4:F4'],
+                'freeze_row' => 7,
+            ],
+        ];
+    }
+
+    private function sheetIntroRows(
+        string $title,
+        string $restaurantName,
+        string $period,
+        string $generatedAt,
+    ): array {
+        return [
+            [$this->xlsxCell($title, 1)],
+            [$this->xlsxCell($restaurantName, 2)],
+            [$this->xlsxCell($period, 13)],
+            [$this->xlsxCell('Dibuat pada '.$generatedAt.' WIB', 13)],
+        ];
+    }
+
+    private function xlsxCell(mixed $value, int $style = 0): array
+    {
+        return ['value' => $this->sanitizeSpreadsheetCell((string) $value), 'style' => $style, 'type' => 'string'];
+    }
+
+    private function xlsxNumber(mixed $value, int $style): array
+    {
+        return ['value' => (float) $value, 'style' => $style, 'type' => 'number'];
+    }
+
+    private function billTypeLabel(string $value): string
+    {
+        return match (strtoupper($value)) {
+            'DINE_IN' => 'Makan di Tempat',
+            'TAKE_AWAY' => 'Bawa Pulang',
+            'RESERVATION' => 'Reservasi',
+            'CATERING', 'EVENT' => 'Katering / Event',
+            default => ucwords(strtolower(str_replace('_', ' ', $value))),
+        };
+    }
+
+    private function paymentMethodLabel(string $value): string
+    {
+        return match (strtoupper($value)) {
+            'CASH' => 'Tunai',
+            'DEBIT' => 'Kartu Debit',
+            'CREDIT_CARD' => 'Kartu Kredit',
+            'BANK_TRANSFER' => 'Transfer Bank',
+            'QRIS' => 'QRIS',
+            'EWALLET' => 'Dompet Digital',
+            'DEPOSIT' => 'Uang Muka',
+            default => ucwords(strtolower(str_replace('_', ' ', $value))),
+        };
+    }
+
+    private function paymentMethodListLabel(string $value): string
+    {
+        if (trim($value) === '') {
+            return '-';
+        }
+
+        return collect(explode(',', $value))
+            ->map(fn (string $method) => $this->paymentMethodLabel(trim($method)))
+            ->implode(', ');
+    }
+
+    private function statusLabel(string $value): string
+    {
+        return match (strtoupper($value)) {
+            'PAID' => 'Lunas',
+            'REFUND' => 'Dikembalikan',
+            'VOID' => 'Dibatalkan',
+            'CANCELLED' => 'Dibatalkan',
+            'CLOSED' => 'Ditutup',
+            default => ucwords(strtolower(str_replace('_', ' ', $value))),
+        };
+    }
+
+    private function contentTypesXml(int $sheetCount): string
+    {
+        $worksheetOverrides = collect(range(1, $sheetCount))
+            ->map(fn (int $index) => sprintf(
+                '  <Override PartName="/xl/worksheets/sheet%d.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+                $index,
+            ))
+            ->implode("\n");
+
+        return <<<XML
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+{$worksheetOverrides}
   <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
   <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
   <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
@@ -660,13 +1097,20 @@ XML;
 XML;
     }
 
-    private function appPropertiesXml(): string
+    private function appPropertiesXml(array $sheets): string
     {
-        return <<<'XML'
+        $sheetNames = collect($sheets)
+            ->map(fn (array $sheet) => '<vt:lpstr>'.$this->escapeSpreadsheetValue($sheet['name']).'</vt:lpstr>')
+            ->implode('');
+        $sheetCount = count($sheets);
+
+        return <<<XML
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
  xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-  <Application>Laravel</Application>
+  <Application>Warung Babeh POS</Application>
+  <HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant><vt:variant><vt:i4>{$sheetCount}</vt:i4></vt:variant></vt:vector></HeadingPairs>
+  <TitlesOfParts><vt:vector size="{$sheetCount}" baseType="lpstr">{$sheetNames}</vt:vector></TitlesOfParts>
 </Properties>
 XML;
     }
@@ -691,26 +1135,44 @@ XML;
 XML;
     }
 
-    private function workbookXml(): string
+    private function workbookXml(array $sheets): string
     {
-        return <<<'XML'
+        $sheetNodes = collect($sheets)
+            ->map(fn (array $sheet, int $index) => sprintf(
+                '    <sheet name="%s" sheetId="%d" r:id="rId%d"/>',
+                $this->escapeSpreadsheetValue($sheet['name']),
+                $index + 1,
+                $index + 1,
+            ))
+            ->implode("\n");
+
+        return <<<XML
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheets>
-    <sheet name="Laporan Penjualan" sheetId="1" r:id="rId1"/>
+{$sheetNodes}
   </sheets>
 </workbook>
 XML;
     }
 
-    private function workbookRelationshipsXml(): string
+    private function workbookRelationshipsXml(array $sheets): string
     {
-        return <<<'XML'
+        $worksheetRelationships = collect($sheets)
+            ->map(fn (array $_sheet, int $index) => sprintf(
+                '  <Relationship Id="rId%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet%d.xml"/>',
+                $index + 1,
+                $index + 1,
+            ))
+            ->implode("\n");
+        $styleRelationshipId = count($sheets) + 1;
+
+        return <<<XML
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+{$worksheetRelationships}
+  <Relationship Id="rId{$styleRelationshipId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>
 XML;
     }
@@ -720,25 +1182,47 @@ XML;
         return <<<'XML'
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="1">
-    <font>
-      <sz val="11"/>
-      <name val="Calibri"/>
-      <family val="2"/>
-    </font>
+  <numFmts count="3">
+    <numFmt numFmtId="164" formatCode="&quot;Rp&quot; #,##0;[Red]-&quot;Rp&quot; #,##0"/>
+    <numFmt numFmtId="165" formatCode="0.0%"/>
+    <numFmt numFmtId="166" formatCode="#,##0"/>
+  </numFmts>
+  <fonts count="4">
+    <font><sz val="11"/><name val="Aptos"/><family val="2"/></font>
+    <font><b/><color rgb="FFFFFFFF"/><sz val="18"/><name val="Aptos Display"/></font>
+    <font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Aptos"/></font>
+    <font><b/><color rgb="FF004B36"/><sz val="11"/><name val="Aptos"/></font>
   </fonts>
-  <fills count="2">
+  <fills count="6">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF004B36"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF0D6B3A"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFF6D8"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE5F2EA"/><bgColor indexed="64"/></patternFill></fill>
   </fills>
-  <borders count="1">
+  <borders count="2">
     <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left style="thin"><color rgb="FFD9E2DA"/></left><right style="thin"><color rgb="FFD9E2DA"/></right><top style="thin"><color rgb="FFD9E2DA"/></top><bottom style="thin"><color rgb="FFD9E2DA"/></bottom><diagonal/></border>
   </borders>
   <cellStyleXfs count="1">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
   </cellStyleXfs>
-  <cellXfs count="1">
+  <cellXfs count="14">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="4" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="164" fontId="3" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/>
+    <xf numFmtId="166" fontId="3" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/>
+    <xf numFmtId="165" fontId="3" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="4" borderId="1" xfId="0"/>
+    <xf numFmtId="164" fontId="3" fillId="4" borderId="1" xfId="0" applyNumberFormat="1"/>
+    <xf numFmtId="0" fontId="3" fillId="5" borderId="1" xfId="0"/>
+    <xf numFmtId="164" fontId="3" fillId="5" borderId="1" xfId="0" applyNumberFormat="1"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1"/></xf>
   </cellXfs>
   <cellStyles count="1">
     <cellStyle name="Normal" xfId="0" builtinId="0"/>
@@ -747,46 +1231,85 @@ XML;
 XML;
     }
 
-    private function worksheetXml(array $rows): string
+    private function worksheetXml(array $sheet): string
     {
+        $rows = $sheet['rows'];
         $sheetRows = collect($rows)->map(function (array $row, int $rowIndex): string {
             $cells = collect(array_values($row))->map(
-                fn (string $value, int $columnIndex): string => $this->worksheetCellXml(
+                fn (array $cell, int $columnIndex): string => $this->worksheetCellXml(
                     $rowIndex + 1,
                     $columnIndex + 1,
-                    $value,
+                    $cell,
                 )
             )->implode('');
 
-            return sprintf('<row r="%d">%s</row>', $rowIndex + 1, $cells);
+            $height = in_array($rowIndex + 1, [1, 6], true) ? ' ht="26" customHeight="1"' : '';
+
+            return sprintf('<row r="%d"%s>%s</row>', $rowIndex + 1, $height, $cells);
         })->implode('');
+        $lastColumn = $this->worksheetColumnName(max(array_map('count', $rows)));
+        $lastRow = max(count($rows), 1);
+        $columns = collect($sheet['widths'] ?? [20])
+            ->map(fn (float|int $width, int $index) => sprintf(
+                '<col min="%d" max="%d" width="%s" customWidth="1"/>',
+                $index + 1,
+                $index + 1,
+                $width,
+            ))
+            ->implode('');
+        $freezeRow = (int) ($sheet['freeze_row'] ?? 0);
+        $pane = $freezeRow > 1
+            ? sprintf('<pane ySplit="%d" topLeftCell="A%d" activePane="bottomLeft" state="frozen"/>', $freezeRow - 1, $freezeRow)
+            : '';
+        $merges = collect($sheet['merges'] ?? [])
+            ->map(fn (string $range) => '<mergeCell ref="'.$range.'"/>')
+            ->implode('');
+        $mergeXml = $merges !== ''
+            ? sprintf('<mergeCells count="%d">%s</mergeCells>', count($sheet['merges']), $merges)
+            : '';
+        $autoFilter = isset($sheet['auto_filter'])
+            ? '<autoFilter ref="'.$sheet['auto_filter'].'"/>'
+            : '';
+        $orientation = ($sheet['landscape'] ?? false) ? 'landscape' : 'portrait';
 
         return <<<XML
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:{$lastColumn}{$lastRow}"/>
+  <sheetViews><sheetView workbookViewId="0"><selection pane="topLeft" activeCell="A1" sqref="A1"/>{$pane}</sheetView></sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>{$columns}</cols>
   <sheetData>
     {$sheetRows}
   </sheetData>
+  {$autoFilter}
+  {$mergeXml}
+  <pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
+  <pageSetup orientation="{$orientation}" fitToWidth="1" fitToHeight="0"/>
 </worksheet>
 XML;
     }
 
-    private function worksheetCellXml(int $rowNumber, int $columnNumber, string $value): string
+    private function worksheetCellXml(int $rowNumber, int $columnNumber, array $cell): string
     {
         $cellReference = $this->worksheetColumnName($columnNumber).$rowNumber;
+        $value = $cell['value'] ?? '';
+        $style = (int) ($cell['style'] ?? 0);
 
-        if (is_numeric($value) && ! preg_match('/^0\d+$/', $value)) {
+        if (($cell['type'] ?? 'string') === 'number') {
             return sprintf(
-                '<c r="%s"><v>%s</v></c>',
+                '<c r="%s" s="%d"><v>%s</v></c>',
                 $cellReference,
-                $this->escapeSpreadsheetValue($value),
+                $style,
+                $this->escapeSpreadsheetValue((string) $value),
             );
         }
 
         return sprintf(
-            '<c r="%s" t="inlineStr"><is><t>%s</t></is></c>',
+            '<c r="%s" s="%d" t="inlineStr"><is><t xml:space="preserve">%s</t></is></c>',
             $cellReference,
-            $this->escapeSpreadsheetValue($value),
+            $style,
+            $this->escapeSpreadsheetValue((string) $value),
         );
     }
 

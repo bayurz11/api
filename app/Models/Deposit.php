@@ -12,9 +12,13 @@ class Deposit extends Model
 
     protected $fillable = [
         'bill_id',
+        'payment_id',
         'reservation_id',
         'customer_id',
         'amount',
+        'payment_method',
+        'reference_no',
+        'notes',
         'received_by',
         'received_at',
         'status',
@@ -31,6 +35,11 @@ class Deposit extends Model
     public function reservation(): BelongsTo
     {
         return $this->belongsTo(Reservation::class);
+    }
+
+    public function payment(): BelongsTo
+    {
+        return $this->belongsTo(Payment::class);
     }
 
     public function customer(): BelongsTo

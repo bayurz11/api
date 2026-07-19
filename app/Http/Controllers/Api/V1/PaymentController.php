@@ -19,6 +19,8 @@ class PaymentController extends Controller
 {
     private const PAYMENT_METHODS = ['CASH', 'QRIS_MANUAL', 'TRANSFER', 'DEBIT', 'KREDIT', 'VOUCHER'];
 
+    private const PAYMENT_TYPES = ['REGULAR', 'DEPOSIT', 'SETTLEMENT'];
+
     public function index(Bill $bill): JsonResponse
     {
         return response()->json([
@@ -31,6 +33,7 @@ class PaymentController extends Controller
     {
         $validated = $request->validate([
             'payment_method' => ['required', 'string', Rule::in(self::PAYMENT_METHODS)],
+            'payment_type' => ['nullable', 'string', Rule::in(self::PAYMENT_TYPES)],
             'amount' => ['required', 'numeric', 'decimal:0,2', 'min:1', 'max:9999999999.99'],
             'reference_no' => ['nullable', 'string', 'max:255'],
         ]);
@@ -40,12 +43,15 @@ class PaymentController extends Controller
         $payment = DB::transaction(function () use ($bill, $validated, $user) {
             $bill = Bill::query()->lockForUpdate()->findOrFail($bill->id);
             $this->ensureBillAcceptsPayment($bill);
-            $this->ensureAmountDoesNotOverpay($bill, $this->toMinorUnits($validated['amount']));
+            $amountMinor = $this->toMinorUnits($validated['amount']);
+            $this->ensureAmountDoesNotOverpay($bill, $amountMinor);
+            $paymentType = $this->resolvePaymentType($bill, $validated['payment_type'] ?? null, $amountMinor);
 
             $payment = Payment::query()->create([
                 'bill_id' => $bill->id,
                 'payment_no' => SequenceNumber::generate('PAY', Payment::class, 'payment_no'),
                 'payment_method' => $validated['payment_method'],
+                'payment_type' => $paymentType,
                 'amount' => $validated['amount'],
                 'reference_no' => $validated['reference_no'] ?? null,
                 'paid_by' => $user->id,
@@ -309,6 +315,27 @@ class PaymentController extends Controller
             422,
             'Nominal pembayaran melebihi sisa tagihan.',
         );
+    }
+
+    private function resolvePaymentType(Bill $bill, ?string $requestedType, int $amountMinor): string
+    {
+        $balanceMinor = $this->toMinorUnits($bill->balance_due);
+        $isAdvanceFlow = in_array($bill->bill_type, ['CATERING', 'RESERVATION'], true);
+        $paymentType = $requestedType
+            ?? ($isAdvanceFlow ? ($amountMinor < $balanceMinor ? 'DEPOSIT' : 'SETTLEMENT') : 'REGULAR');
+
+        abort_if(
+            $paymentType === 'DEPOSIT' && ! $isAdvanceFlow,
+            422,
+            'DP hanya dapat dicatat untuk tagihan Katering/Event atau Reservasi.',
+        );
+        abort_if(
+            $paymentType === 'SETTLEMENT' && $amountMinor !== $balanceMinor,
+            422,
+            'Nominal pelunasan harus sama dengan sisa tagihan.',
+        );
+
+        return $paymentType;
     }
 
     private function toMinorUnits(mixed $amount): int
