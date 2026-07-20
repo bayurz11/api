@@ -2,14 +2,80 @@
 
 namespace Tests\Feature;
 
+use App\Models\Reservation;
 use App\Models\Table;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class ReservationOperationalFlowTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_operational_roles_can_confirm_reservations_when_permission_cache_or_pivot_is_stale(): void
+    {
+        $this->seed();
+
+        $permissionId = DB::table('permissions')
+            ->where('name', 'reservations.operate')
+            ->value('id');
+        DB::table('role_has_permissions')
+            ->where('permission_id', $permissionId)
+            ->delete();
+
+        $admin = User::factory()->create([
+            'username' => 'admin-reservasi',
+            'is_active' => true,
+        ]);
+        $admin->assignRole('Admin');
+
+        $users = [
+            $admin,
+            User::query()->where('username', 'kasir01')->firstOrFail(),
+            User::query()->where('username', 'waiter01')->firstOrFail(),
+        ];
+        $table = Table::query()->where('code', 'T01')->firstOrFail();
+
+        foreach ($users as $index => $user) {
+            $reservation = Reservation::query()->create([
+                'guest_name' => "Tamu Operasional {$index}",
+                'guest_phone' => "08120000010{$index}",
+                'table_id' => $table->id,
+                'reservation_code' => "RSV-ROLE-{$index}",
+                'reserved_at' => now()->addDays($index + 1),
+                'guest_count' => 2,
+                'status' => 'PENDING',
+                'source' => 'PHONE',
+            ]);
+            $reservation->tables()->attach($table->id);
+
+            $this->actingAs($user, 'sanctum')
+                ->postJson("/api/v1/reservations/{$reservation->id}/confirm")
+                ->assertOk()
+                ->assertJsonPath('data.status', 'CONFIRMED');
+        }
+
+        foreach (['kitchen01', 'bar01'] as $index => $username) {
+            $reservation = Reservation::query()->create([
+                'guest_name' => "Tamu Ditolak {$index}",
+                'guest_phone' => "08120000020{$index}",
+                'table_id' => $table->id,
+                'reservation_code' => "RSV-DENY-{$index}",
+                'reserved_at' => now()->addWeek()->addDays($index),
+                'guest_count' => 2,
+                'status' => 'PENDING',
+                'source' => 'PHONE',
+            ]);
+            $reservation->tables()->attach($table->id);
+
+            $this->actingAs(
+                User::query()->where('username', $username)->firstOrFail(),
+                'sanctum',
+            )->postJson("/api/v1/reservations/{$reservation->id}/confirm")
+                ->assertForbidden();
+        }
+    }
 
     public function test_multi_table_capacity_and_schedule_conflict_are_enforced(): void
     {

@@ -12,10 +12,15 @@ class RequirePermission
     public function handle(Request $request, Closure $next, string $permission): Response
     {
         $user = $request->user();
-        $hasOwnerAdminFallback = in_array($permission, ['settings.view', 'settings.manage'], true)
-            && $user?->hasAnyRole(['Owner', 'Admin']);
+        $roleFallbacks = [
+            'settings.view' => ['Owner', 'Admin'],
+            'settings.manage' => ['Owner', 'Admin'],
+            'reservations.operate' => ['Owner', 'Admin', 'Kasir', 'Waiter'],
+        ];
+        $hasRoleFallback = isset($roleFallbacks[$permission])
+            && $user?->hasAnyRole($roleFallbacks[$permission]);
         abort_unless(
-            $hasOwnerAdminFallback
+            $hasRoleFallback
                 || $this->hasPermission($user, $permission),
             403,
             'Anda tidak memiliki hak akses untuk aksi ini.',

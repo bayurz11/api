@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -49,7 +50,7 @@ class AuthController extends Controller
                 'username' => $user->username,
                 'email' => $user->email,
                 'roles' => $user->getRoleNames()->values(),
-                'permissions' => $user->getAllPermissions()->pluck('name')->values(),
+                'permissions' => $this->permissionsFor($user),
             ],
         ]);
     }
@@ -68,7 +69,7 @@ class AuthController extends Controller
                 'username' => $user->username,
                 'email' => $user->email,
                 'roles' => $user->getRoleNames()->values(),
-                'permissions' => $user->getAllPermissions()->pluck('name')->values(),
+                'permissions' => $this->permissionsFor($user),
             ],
         ]);
     }
@@ -89,5 +90,43 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Logout berhasil.',
         ]);
+    }
+
+    private function permissionsFor(User $user): array
+    {
+        $modelType = $user->getMorphClass();
+        $modelId = $user->getKey();
+
+        return DB::table('permissions')
+            ->where('guard_name', 'web')
+            ->where(function ($query) use ($modelId, $modelType): void {
+                $query
+                    ->whereExists(function ($directPermission) use ($modelId, $modelType): void {
+                        $directPermission
+                            ->selectRaw('1')
+                            ->from('model_has_permissions')
+                            ->whereColumn('model_has_permissions.permission_id', 'permissions.id')
+                            ->where('model_has_permissions.model_type', $modelType)
+                            ->where('model_has_permissions.model_id', $modelId);
+                    })
+                    ->orWhereExists(function ($rolePermission) use ($modelId, $modelType): void {
+                        $rolePermission
+                            ->selectRaw('1')
+                            ->from('model_has_roles')
+                            ->join(
+                                'role_has_permissions',
+                                'role_has_permissions.role_id',
+                                '=',
+                                'model_has_roles.role_id',
+                            )
+                            ->whereColumn('role_has_permissions.permission_id', 'permissions.id')
+                            ->where('model_has_roles.model_type', $modelType)
+                            ->where('model_has_roles.model_id', $modelId);
+                    });
+            })
+            ->orderBy('name')
+            ->pluck('name')
+            ->values()
+            ->all();
     }
 }
