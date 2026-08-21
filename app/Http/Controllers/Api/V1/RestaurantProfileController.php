@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Branch;
 use App\Models\Setting;
+use App\Support\BranchContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -34,7 +36,7 @@ class RestaurantProfileController extends Controller
         if ($request->hasFile('restaurant_logo')) {
             $newLogoPath = $request->file('restaurant_logo')->store('restaurant-profile', 'public');
 
-            if (!is_string($newLogoPath) || $newLogoPath === '') {
+            if (! is_string($newLogoPath) || $newLogoPath === '') {
                 throw ValidationException::withMessages([
                     'restaurant_logo' => ['Logo gagal disimpan. Periksa izin folder storage pada server.'],
                 ]);
@@ -54,7 +56,14 @@ class RestaurantProfileController extends Controller
         });
 
         if ($newLogoPath !== null && is_string($previousLogo) && $previousLogo !== '' && $previousLogo !== $newLogoPath) {
-            Storage::disk('public')->delete($previousLogo);
+            $stillUsed = Setting::query()
+                ->withoutGlobalScope('branch')
+                ->where('key', 'restaurant_logo_path')
+                ->where('value', $previousLogo)
+                ->exists();
+            if (! $stillUsed) {
+                Storage::disk('public')->delete($previousLogo);
+            }
         }
 
         return response()->json([
@@ -65,7 +74,26 @@ class RestaurantProfileController extends Controller
 
     public function logo(): BinaryFileResponse
     {
-        $logoPath = Setting::getValue('restaurant_logo_path');
+        $branchId = app(BranchContext::class)->id()
+            ?? Branch::query()->where('is_active', true)->orderBy('id')->value('id');
+
+        return $this->logoResponse($branchId ? (int) $branchId : null);
+    }
+
+    public function branchLogo(string $branchCode): BinaryFileResponse
+    {
+        $branchId = Branch::query()
+            ->where('code', strtoupper($branchCode))
+            ->where('is_active', true)
+            ->value('id');
+        abort_if(! $branchId, 404, 'Cabang tidak ditemukan.');
+
+        return $this->logoResponse((int) $branchId);
+    }
+
+    private function logoResponse(?int $branchId): BinaryFileResponse
+    {
+        $logoPath = $this->settingValueForBranch($branchId, 'restaurant_logo_path');
 
         abort_unless(
             is_string($logoPath) && $logoPath !== '' && Storage::disk('public')->exists($logoPath),
@@ -81,21 +109,39 @@ class RestaurantProfileController extends Controller
 
     public static function profilePayload(?Request $request = null): array
     {
-        $logoPath = Setting::getValue('restaurant_logo_path');
-        $logoVersion = Setting::getValue('restaurant_logo_updated_at', '1');
+        $controller = app(self::class);
+        $branch = app(BranchContext::class)->branch();
+        $branchId = $branch?->id;
+        $logoPath = $controller->settingValueForBranch($branchId, 'restaurant_logo_path');
+        $logoVersion = $controller->settingValueForBranch($branchId, 'restaurant_logo_updated_at', '1');
         $hasLogo = is_string($logoPath) && $logoPath !== '';
         $logoUrl = null;
 
         if ($hasLogo) {
             $logoUrl = $request !== null
-                ? $request->getSchemeAndHttpHost().'/api/v1/restaurant-profile/logo?v='.$logoVersion
+                ? $request->getSchemeAndHttpHost().'/api/v1/'.($branch
+                    ? 'branches/'.$branch->code.'/restaurant-profile/logo'
+                    : 'restaurant-profile/logo').'?v='.$logoVersion
                 : Storage::disk('public')->url($logoPath);
         }
 
         return [
-            'restaurant_name' => Setting::getValue('restaurant_name', config('app.name', 'Warung Babeh')),
-            'restaurant_address' => Setting::getValue('restaurant_address'),
+            'restaurant_name' => $controller->settingValueForBranch($branchId, 'restaurant_name', config('app.name', 'Warung Babeh')),
+            'restaurant_address' => $controller->settingValueForBranch($branchId, 'restaurant_address'),
             'restaurant_logo_url' => $logoUrl,
         ];
+    }
+
+    private function settingValueForBranch(?int $branchId, string $key, mixed $default = null): mixed
+    {
+        if (! $branchId) {
+            return $default;
+        }
+
+        return Setting::query()
+            ->withoutGlobalScope('branch')
+            ->where('branch_id', $branchId)
+            ->where('key', $key)
+            ->value('value') ?? $default;
     }
 }

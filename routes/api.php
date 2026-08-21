@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\MenuIngredientController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OrderController;
 use App\Http\Controllers\Api\V1\OrderItemStatusController;
+use App\Http\Controllers\Api\V1\OrganizationReportController;
 use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\PrintController;
 use App\Http\Controllers\Api\V1\QrMenuController;
@@ -33,6 +34,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     Route::get('/health', HealthController::class);
     Route::get('/restaurant-profile/logo', [RestaurantProfileController::class, 'logo']);
+    Route::get('/branches/{branchCode}/restaurant-profile/logo', [RestaurantProfileController::class, 'branchLogo']);
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::get('/qr-menu/{tableCode}', [QrMenuController::class, 'menu'])->middleware('throttle:qr-menu');
     Route::post('/qr-menu/{tableCode}/checkout', [QrMenuController::class, 'checkout'])->middleware('throttle:qr-checkout');
@@ -62,6 +64,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware('permission:reports.view')->group(function () {
             Route::get('/audit-logs', [AuditLogController::class, 'index']);
             Route::get('/reports/sales-summary', [ReportController::class, 'salesSummary']);
+            Route::get('/reports/branch-comparison', OrganizationReportController::class);
             Route::get('/reports/sales-summary/export', [ReportController::class, 'exportSalesSummary']);
             Route::get('/reports/sales-summary/export-excel', [ReportController::class, 'exportSalesSummaryExcel']);
         });

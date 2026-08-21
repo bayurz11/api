@@ -1515,7 +1515,12 @@ class ExampleTest extends TestCase
         $this->actingAs($owner, 'sanctum')->deleteJson("/api/v1/customers/{$customerId}")
             ->assertOk();
 
-        $this->assertDatabaseMissing('menus', ['id' => $menuId]);
+        $this->assertDatabaseHas('menus', ['id' => $menuId]);
+        $this->assertDatabaseHas('branch_menus', [
+            'menu_id' => $menuId,
+            'is_active' => false,
+            'is_available' => false,
+        ]);
         $this->assertDatabaseMissing('tables', ['id' => $tableId]);
         $this->assertDatabaseMissing('customers', ['id' => $customerId]);
     }
@@ -2055,7 +2060,12 @@ class ExampleTest extends TestCase
             ->deleteJson("/api/v1/menu-categories/{$newCategoryId}")
             ->assertOk();
 
-        $this->assertDatabaseMissing('menus', ['id' => $menuId]);
+        $this->assertDatabaseHas('menus', ['id' => $menuId]);
+        $this->assertDatabaseHas('branch_menus', [
+            'menu_id' => $menuId,
+            'is_active' => false,
+            'is_available' => false,
+        ]);
         $this->assertDatabaseMissing('menu_categories', ['id' => $newCategoryId]);
     }
 

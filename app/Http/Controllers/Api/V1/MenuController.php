@@ -240,20 +240,25 @@ class MenuController extends Controller
 
     public function destroy(Request $request, Menu $menu): JsonResponse
     {
-        $before = $menu->toArray();
-        $menu->delete();
+        $branchId = app(BranchContext::class)->requireId();
+        $setting = BranchMenu::query()
+            ->where('branch_id', $branchId)
+            ->where('menu_id', $menu->id)
+            ->firstOrFail();
+        $before = $setting->toArray();
+        $setting->update(['is_active' => false, 'is_available' => false]);
 
         AuditLogger::log(
             userId: $request->user()->id,
             roleName: $request->user()->getRoleNames()->first(),
-            action: 'menu.deleted',
-            entityType: 'menu',
+            action: 'branch_menu.deactivated',
+            entityType: 'branch_menu',
             entityId: $before['id'],
             before: $before,
         );
 
         return response()->json([
-            'message' => 'Menu berhasil dihapus.',
+            'message' => 'Menu berhasil dinonaktifkan untuk cabang ini.',
         ]);
     }
 

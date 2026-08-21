@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Bill;
 use App\Models\Payment;
 use App\Support\BranchContext;
+use App\Support\OrganizationBranchMetrics;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,8 @@ use ZipArchive;
 
 class ReportController extends Controller
 {
+    public function __construct(private readonly OrganizationBranchMetrics $branchMetrics) {}
+
     public function salesSummary(Request $request): JsonResponse
     {
         return response()->json($this->buildSalesSummaryPayload($request));
@@ -541,6 +544,11 @@ class ReportController extends Controller
             'top_tables' => $topTables,
             'hourly_trend' => $hourlyTrend,
             'top_customers' => $topCustomers,
+            'organization_branch_comparison' => $this->branchMetrics->build(
+                app(BranchContext::class)->branch()->organization_id,
+                $rangeStart,
+                $rangeEnd,
+            ),
         ];
     }
 

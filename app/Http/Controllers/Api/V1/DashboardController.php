@@ -9,7 +9,9 @@ use App\Models\OrderItem;
 use App\Models\Reservation;
 use App\Models\Setting;
 use App\Models\ShoppingNote;
+use App\Support\BranchAuthorization;
 use App\Support\BranchContext;
+use App\Support\OrganizationBranchMetrics;
 use App\Support\TableCleaningManager;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
@@ -21,6 +23,11 @@ use Throwable;
 
 class DashboardController extends Controller
 {
+    public function __construct(
+        private readonly BranchAuthorization $authorization,
+        private readonly OrganizationBranchMetrics $branchMetrics,
+    ) {}
+
     /**
      * Return lightweight dashboard data for the mobile app.
      */
@@ -430,6 +437,17 @@ class DashboardController extends Controller
                     ];
                 },
             );
+
+            $roleName = $this->authorization->roleName($user);
+            if (in_array($roleName, ['Owner', 'Admin'], true)
+                && $this->authorization->hasPermission($user, 'reports.view')) {
+                $branch = app(BranchContext::class)->branch();
+                $payload['analytics']['branch_comparison'] = $this->branchMetrics->build(
+                    $branch->organization_id,
+                    $todayStart,
+                    $tomorrowStart,
+                );
+            }
 
             return response()->json($payload);
         } catch (Throwable $exception) {

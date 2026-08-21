@@ -19,8 +19,12 @@ Dokumen ini menjelaskan implementasi multi-cabang tahap operasional, kontrak API
 - Migrasi data lama dan seeder demo memasukkan data ke `Cabang Utama`.
 - Flutter menampilkan pemilih cabang pada Pengaturan untuk pengguna yang memiliki lebih dari satu cabang.
 - Owner/admin dapat membuka halaman Kelola Cabang untuk membuat, mengubah, menonaktifkan cabang, dan mengatur penempatan petugas.
+- Role dan permission pengguna dapat berbeda pada setiap cabang dan langsung mengikuti cabang aktif pada token.
+- Profil restoran, alamat, dan logo dapat berbeda pada setiap cabang, termasuk URL logo publik berbasis kode cabang.
+- Penghapusan menu dari cabang hanya menonaktifkan konfigurasi `branch_menus`; katalog pusat tidak ikut terhapus.
+- Laporan penjualan dan dashboard Owner menampilkan perbandingan seluruh cabang dalam organisasi yang sama.
 - Pergantian cabang memperbarui token/sesi terenkripsi dan memuat ulang provider operasional.
-- Pengujian otomatis mencakup isolasi meja lintas cabang, salin konfigurasi menu, penempatan pengguna, dan pergantian cabang.
+- Pengujian otomatis mencakup isolasi meja, role, profil, laporan organisasi, salin konfigurasi menu, penempatan pengguna, dan pergantian cabang.
 
 ## Kontrak API
 
@@ -31,6 +35,8 @@ Dokumen ini menjelaskan implementasi multi-cabang tahap operasional, kontrak API
 - `PATCH /api/v1/branches/{branch}`: memperbarui identitas dan status cabang.
 - `PUT /api/v1/branches/{branch}/users/{user}`: menempatkan pengguna ke cabang.
 - `DELETE /api/v1/branches/{branch}/users/{user}`: menghapus akses pengguna dari cabang.
+- `GET /api/v1/reports/branch-comparison`: ringkasan omzet dan jumlah transaksi seluruh cabang pada organisasi aktif.
+- `GET /api/v1/branches/{branchCode}/restaurant-profile/logo`: logo publik untuk cabang tertentu.
 
 Payload pergantian cabang:
 
@@ -49,13 +55,11 @@ Data pada `menus` tetap menjadi katalog pusat. Nilai operasional menggunakan ove
 - Station: `branch_menus.station_type`, fallback ke `menus.station_type`.
 - Menu dapat dijual bila konfigurasi pusat dan konfigurasi cabang sama-sama aktif dan tersedia.
 
-## Batas fase saat ini
+## Batas desain
 
-- Role pengguna masih bersifat global pada organisasi. Snapshot `role_name` tersedia pada relasi cabang, tetapi role berbeda per cabang belum diaktifkan karena permission Spatie saat ini bersifat global.
-- Nama, kategori, gambar, dan deskripsi menu merupakan katalog pusat. Harga, SKU lokal, station, status aktif, dan ketersediaan dapat berbeda per cabang.
-- Menghapus menu masih menghapus katalog pusat. Untuk operasional multi-cabang, nonaktifkan menu pada cabang; pembatasan penghapusan katalog pusat perlu diselesaikan pada fase UI manajemen cabang.
-- Laporan owner lintas seluruh cabang belum tersedia. Endpoint laporan saat ini sengaja mengikuti cabang aktif untuk mencegah kebocoran data.
-- Profil/logo publik restoran masih memerlukan kontrak cabang eksplisit jika setiap cabang akan memakai identitas visual berbeda.
+- Nama, kategori, gambar, dan deskripsi menu tetap merupakan katalog pusat agar tidak terjadi duplikasi produk. Harga, SKU lokal, station, status aktif, dan ketersediaan dapat berbeda per cabang.
+- Laporan transaksi detail tetap mengikuti cabang aktif. Perbandingan organisasi hanya mengembalikan metrik agregat tiap cabang untuk Owner/Admin dengan permission `reports.view`.
+- Satu token hanya membawa satu cabang aktif. Perangkat berbeda dapat memakai cabang aktif berbeda tanpa saling mencabut sesi.
 
 ## Deploy
 
@@ -68,7 +72,7 @@ Data pada `menus` tetap menjadi katalog pusat. Nilai operasional menggunakan ove
 
 ## Verifikasi
 
-- Backend: `php artisan test` menghasilkan 56 tes lulus dengan 661 assertion.
-- Format backend: `vendor/bin/pint --dirty` lulus.
+- Backend: `php artisan test --compact` menghasilkan 59 tes lulus dengan 683 assertion.
+- Format backend: `vendor/bin/pint` pada seluruh file perubahan lulus.
 - Flutter: `flutter analyze` lulus tanpa issue.
 - Flutter: `flutter test` menghasilkan 125 tes lulus untuk ukuran mobile, tablet, dan Windows.

@@ -5,15 +5,17 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\User;
+use App\Support\BranchAuthorization;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    public function __construct(private readonly BranchAuthorization $authorization) {}
+
     /**
      * Authenticate the user and return a Sanctum token.
      */
@@ -34,8 +36,6 @@ class AuthController extends Controller
             ]);
         }
 
-        $user->tokens()->where('name', 'mobile-app')->delete();
-
         $expirationMinutes = max((int) env('SANCTUM_TOKEN_EXPIRATION_MINUTES', 10080), 1);
         $activeBranch = $this->defaultBranchFor($user);
         $newAccessToken = $user->createToken(
@@ -54,8 +54,8 @@ class AuthController extends Controller
                 'name' => $user->name,
                 'username' => $user->username,
                 'email' => $user->email,
-                'roles' => $user->getRoleNames()->values(),
-                'permissions' => $this->permissionsFor($user),
+                'roles' => array_values(array_filter([$this->authorization->roleName($user, $activeBranch?->id)])),
+                'permissions' => $this->authorization->permissions($user, $activeBranch?->id),
                 'branches' => $this->branchesFor($user),
                 'active_branch' => $activeBranch ? $this->serializeBranch($activeBranch) : null,
             ],
@@ -75,8 +75,8 @@ class AuthController extends Controller
                 'name' => $user->name,
                 'username' => $user->username,
                 'email' => $user->email,
-                'roles' => $user->getRoleNames()->values(),
-                'permissions' => $this->permissionsFor($user),
+                'roles' => array_values(array_filter([$this->authorization->roleName($user)])),
+                'permissions' => $this->authorization->permissions($user),
                 'branches' => $this->branchesFor($user),
                 'active_branch' => $this->activeBranchFor($request),
             ],
@@ -99,44 +99,6 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Logout berhasil.',
         ]);
-    }
-
-    private function permissionsFor(User $user): array
-    {
-        $modelType = $user->getMorphClass();
-        $modelId = $user->getKey();
-
-        return DB::table('permissions')
-            ->where('guard_name', 'web')
-            ->where(function ($query) use ($modelId, $modelType): void {
-                $query
-                    ->whereExists(function ($directPermission) use ($modelId, $modelType): void {
-                        $directPermission
-                            ->selectRaw('1')
-                            ->from('model_has_permissions')
-                            ->whereColumn('model_has_permissions.permission_id', 'permissions.id')
-                            ->where('model_has_permissions.model_type', $modelType)
-                            ->where('model_has_permissions.model_id', $modelId);
-                    })
-                    ->orWhereExists(function ($rolePermission) use ($modelId, $modelType): void {
-                        $rolePermission
-                            ->selectRaw('1')
-                            ->from('model_has_roles')
-                            ->join(
-                                'role_has_permissions',
-                                'role_has_permissions.role_id',
-                                '=',
-                                'model_has_roles.role_id',
-                            )
-                            ->whereColumn('role_has_permissions.permission_id', 'permissions.id')
-                            ->where('model_has_roles.model_type', $modelType)
-                            ->where('model_has_roles.model_id', $modelId);
-                    });
-            })
-            ->orderBy('name')
-            ->pluck('name')
-            ->values()
-            ->all();
     }
 
     private function defaultBranchFor(User $user): ?Branch

@@ -6,15 +6,19 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\User;
 use App\Support\AuditLogger;
+use App\Support\BranchAuthorization;
 use App\Support\BranchContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Spatie\Permission\Models\Role;
 
 class BranchController extends Controller
 {
+    public function __construct(private readonly BranchAuthorization $authorization) {}
+
     public function index(Request $request): JsonResponse
     {
         return response()->json([
@@ -97,6 +101,7 @@ class BranchController extends Controller
         return response()->json([
             'data' => $branches,
             'available_users' => $users,
+            'available_roles' => Role::query()->where('guard_name', 'web')->orderBy('name')->pluck('name')->values(),
         ]);
     }
 
@@ -130,7 +135,7 @@ class BranchController extends Controller
             ]);
 
             $branch->users()->attach($request->user()->id, [
-                'role_name' => $request->user()->getRoleNames()->first(),
+                'role_name' => $this->authorization->roleName($request->user(), $sourceBranch->id),
                 'is_default' => false,
                 'is_active' => true,
             ]);
@@ -147,7 +152,7 @@ class BranchController extends Controller
 
         AuditLogger::log(
             userId: $request->user()->id,
-            roleName: $request->user()->getRoleNames()->first(),
+            roleName: $this->authorization->roleName($request->user()),
             action: 'branch.created',
             entityType: 'branch',
             entityId: $branch->id,
@@ -193,7 +198,7 @@ class BranchController extends Controller
 
         AuditLogger::log(
             userId: $request->user()->id,
-            roleName: $request->user()->getRoleNames()->first(),
+            roleName: $this->authorization->roleName($request->user()),
             action: 'branch.updated',
             entityType: 'branch',
             entityId: $branch->id,
@@ -214,10 +219,13 @@ class BranchController extends Controller
 
         $validated = $request->validate([
             'is_default' => ['sometimes', 'boolean'],
+            'role' => ['sometimes', 'required', 'string', Rule::exists('roles', 'name')->where('guard_name', 'web')],
         ]);
         $isDefault = $validated['is_default'] ?? false;
+        $roleName = $validated['role'] ?? $user->getRoleNames()->first();
+        abort_if(! $roleName, 422, 'Role pengguna belum dipilih.');
 
-        DB::transaction(function () use ($branch, $user, $isDefault): void {
+        DB::transaction(function () use ($branch, $user, $isDefault, $roleName): void {
             if ($isDefault) {
                 DB::table('branch_user')->where('user_id', $user->id)->update([
                     'is_default' => false,
@@ -227,7 +235,7 @@ class BranchController extends Controller
 
             $branch->users()->syncWithoutDetaching([
                 $user->id => [
-                    'role_name' => $user->getRoleNames()->first(),
+                    'role_name' => $roleName,
                     'is_default' => $isDefault,
                     'is_active' => true,
                 ],
