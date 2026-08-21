@@ -146,6 +146,89 @@ class ExampleTest extends TestCase
         $this->assertSame('56000.00', $bill->grand_total);
     }
 
+    public function test_cashier_can_apply_and_cancel_structured_bill_discount(): void
+    {
+        $this->seed();
+
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $table = Table::query()->where('code', 'T01')->firstOrFail();
+        $menu = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+        $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'DINE_IN',
+            'table_id' => $table->id,
+            'guest_count' => 2,
+        ])->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [['menu_id' => $menu->id, 'qty' => 2]],
+        ])->assertCreated();
+
+        $discountResponse = $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/bills/{$billId}/discounts", [
+                'type' => 'VOUCHER',
+                'value' => 50000,
+                'voucher_code' => 'WB-50K',
+                'reason' => 'Voucher belanja pelanggan',
+            ]);
+
+        $discountResponse
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'VOUCHER')
+            ->assertJsonPath('data.voucher_code', 'WB-50K')
+            ->assertJsonPath('summary.discount_total', '50000.00')
+            ->assertJsonPath('summary.grand_total', '6000.00');
+
+        $discountId = $discountResponse->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/bills/{$billId}/discounts", [
+                'type' => 'FIXED',
+                'value' => 7000,
+                'reason' => 'Potongan tambahan',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Total diskon tidak boleh melebihi subtotal tagihan.');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->deleteJson("/api/v1/bills/{$billId}/discounts/{$discountId}", [
+                'reason' => 'Voucher dibatalkan pelanggan',
+            ])
+            ->assertOk()
+            ->assertJsonPath('summary.discount_total', '0.00')
+            ->assertJsonPath('summary.grand_total', '56000.00');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/bills/{$billId}/discounts", [
+                'type' => 'PERCENTAGE',
+                'value' => 10,
+                'reason' => 'Promo pelanggan tetap',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.amount', '5600.00')
+            ->assertJsonPath('summary.grand_total', '50400.00');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson("/api/v1/bills/{$billId}/discounts", [
+                'type' => 'FIXED',
+                'value' => 400,
+                'reason' => 'Pembulatan layanan',
+            ])
+            ->assertCreated()
+            ->assertJsonPath('summary.discount_total', '6000.00')
+            ->assertJsonPath('summary.grand_total', '50000.00');
+
+        $this->actingAs($cashier, 'sanctum')
+            ->getJson("/api/v1/bills/{$billId}/discounts")
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $this->assertDatabaseHas('bill_discounts', [
+            'id' => $discountId,
+            'voucher_code' => 'WB-50K',
+            'void_reason' => 'Voucher dibatalkan pelanggan',
+        ]);
+    }
+
     /**
      * Verify dine in bill can span multiple tables when guest count exceeds one table capacity.
      */
@@ -882,6 +965,22 @@ class ExampleTest extends TestCase
         $customerDetailResponse
             ->assertOk()
             ->assertJsonPath('data.id', $customer->id);
+
+        Bill::query()->findOrFail($customerBillResponse->json('data.id'))->update([
+            'grand_total' => 17500,
+            'paid_total' => 17500,
+            'balance_due' => 0,
+            'status' => 'PAID',
+            'closed_at' => now(),
+        ]);
+
+        $this->actingAs($cashier, 'sanctum')
+            ->getJson("/api/v1/customers/{$customer->id}/purchase-history")
+            ->assertOk()
+            ->assertJsonPath('data.customer.id', $customer->id)
+            ->assertJsonPath('data.summary.transaction_count', 1)
+            ->assertJsonPath('data.summary.total_spent', 17500)
+            ->assertJsonPath('data.purchases.0.bill_no', $customerBillResponse->json('data.bill_no'));
     }
 
     /**
@@ -967,16 +1066,16 @@ class ExampleTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.job_type', 'BAR_TICKET');
 
-        $this->actingAs($cashier, 'sanctum')
-            ->postJson('/api/v1/print/pre-bill', ['bill_id' => $billId])
-            ->assertCreated()
-            ->assertJsonPath('data.job_type', 'PRE_BILL');
-
         $preBillPdfResponse = $this->actingAs($cashier, 'sanctum')
             ->get("/api/v1/print/pre-bill/{$billId}/pdf");
 
         $preBillPdfResponse->assertOk();
         $this->assertStringContainsString('application/pdf', $preBillPdfResponse->headers->get('content-type', ''));
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson('/api/v1/print/pre-bill', ['bill_id' => $billId])
+            ->assertCreated()
+            ->assertJsonPath('data.job_type', 'PRE_BILL');
 
         $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/payments", [
             'payment_method' => 'CASH',
@@ -1010,6 +1109,66 @@ class ExampleTest extends TestCase
             ->postJson("/api/v1/printers/{$printerId}/test")
             ->assertCreated()
             ->assertJsonPath('data.job_type', 'TEST_RECEIPT');
+    }
+
+    public function test_next_pre_bill_only_contains_newly_added_items(): void
+    {
+        $this->seed();
+
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $table = Table::query()->where('code', 'T01')->firstOrFail();
+        $food = Menu::query()->where('sku', 'MKN-001')->firstOrFail();
+        $billId = $this->actingAs($cashier, 'sanctum')->postJson('/api/v1/bills', [
+            'bill_type' => 'DINE_IN',
+            'table_id' => $table->id,
+            'guest_count' => 2,
+        ])->json('data.id');
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [
+                ['menu_id' => $food->id, 'qty' => 1],
+            ],
+        ])->assertCreated();
+
+        $firstPrint = $this->actingAs($cashier, 'sanctum')
+            ->postJson('/api/v1/print/pre-bill', ['bill_id' => $billId]);
+        $firstPrint
+            ->assertCreated()
+            ->assertJsonPath('data.job_type', 'PRE_BILL');
+        $firstPayload = json_decode((string) $firstPrint->json('data.payload'), true);
+        $firstItems = collect($firstPayload['sections'])
+            ->flatMap(fn (array $section): array => $section['items'])
+            ->values();
+
+        $this->assertFalse($firstPayload['is_incremental']);
+        $this->assertSame(1, $firstPayload['print_sequence']);
+        $this->assertCount(1, $firstItems);
+        $this->assertSame(1, $firstItems->first()['qty']);
+
+        $this->actingAs($cashier, 'sanctum')
+            ->postJson('/api/v1/print/pre-bill', ['bill_id' => $billId])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Tidak ada item baru yang perlu dicetak pada pre-bill.');
+
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/bills/{$billId}/orders", [
+            'items' => [
+                ['menu_id' => $food->id, 'qty' => 2],
+            ],
+        ])->assertCreated();
+
+        $secondPrint = $this->actingAs($cashier, 'sanctum')
+            ->postJson('/api/v1/print/pre-bill', ['bill_id' => $billId]);
+        $secondPrint->assertCreated();
+        $secondPayload = json_decode((string) $secondPrint->json('data.payload'), true);
+        $secondItems = collect($secondPayload['sections'])
+            ->flatMap(fn (array $section): array => $section['items'])
+            ->values();
+
+        $this->assertTrue($secondPayload['is_incremental']);
+        $this->assertSame(2, $secondPayload['print_sequence']);
+        $this->assertCount(1, $secondItems);
+        $this->assertSame($food->name, $secondItems->first()['menu_name']);
+        $this->assertSame(2, $secondItems->first()['qty']);
     }
 
     public function test_pending_print_job_can_be_cancelled_once(): void
@@ -1104,6 +1263,10 @@ class ExampleTest extends TestCase
 
         $this->assertStringContainsString('<img src="', $html);
         $this->assertStringContainsString('class="logo"', $html);
+        $this->assertStringContainsString(
+            'Pajak atas transaksi ini ditanggung dan disetorkan oleh restoran sesuai ketentuan yang berlaku.',
+            $html,
+        );
 
         $pdfResponse = $this->actingAs($cashier, 'sanctum')
             ->get("/api/v1/print/receipt/{$billId}/pdf");

@@ -70,7 +70,11 @@ class UserManagementController extends Controller
 
         $this->ensureActorCanAssignRole($request->user(), $validated['role']);
 
-        $user = DB::transaction(function () use ($validated) {
+        $activeBranchId = $request->user()->currentAccessToken()?->branch_id
+            ?? $request->user()->branches()->wherePivot('is_default', true)->value('branches.id')
+            ?? $request->user()->branches()->value('branches.id');
+
+        $user = DB::transaction(function () use ($validated, $activeBranchId) {
             $user = User::query()->create([
                 'name' => $validated['name'],
                 'username' => strtolower($validated['username']),
@@ -79,6 +83,13 @@ class UserManagementController extends Controller
                 'is_active' => $validated['is_active'] ?? true,
             ]);
             $user->syncRoles([$validated['role']]);
+            if ($activeBranchId) {
+                $user->branches()->attach($activeBranchId, [
+                    'role_name' => $validated['role'],
+                    'is_default' => true,
+                    'is_active' => true,
+                ]);
+            }
 
             return $user->load('roles:id,name');
         });
@@ -131,6 +142,9 @@ class UserManagementController extends Controller
             $user->save();
             if (isset($validated['role'])) {
                 $user->syncRoles([$validated['role']]);
+                DB::table('branch_user')
+                    ->where('user_id', $user->id)
+                    ->update(['role_name' => $validated['role'], 'updated_at' => now()]);
             }
             if (array_key_exists('is_active', $validated) && ! $validated['is_active']) {
                 $user->tokens()->delete();

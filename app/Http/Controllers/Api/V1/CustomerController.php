@@ -87,6 +87,56 @@ class CustomerController extends Controller
         ]);
     }
 
+    public function purchaseHistory(Customer $customer, Request $request): JsonResponse
+    {
+        $perPage = min(max($request->integer('per_page', 20), 1), 50);
+        $paidBills = $customer->bills()
+            ->where('paid_total', '>', 0)
+            ->where('status', '!=', 'VOID');
+
+        $summary = (clone $paidBills)
+            ->selectRaw('COUNT(*) as transaction_count')
+            ->selectRaw('COALESCE(SUM(paid_total), 0) as total_spent')
+            ->selectRaw('COALESCE(AVG(paid_total), 0) as average_transaction')
+            ->selectRaw('MAX(COALESCE(closed_at, opened_at, created_at)) as last_purchase_at')
+            ->first();
+
+        $purchases = (clone $paidBills)
+            ->with([
+                'table:id,code,name',
+                'items:id,bill_id,menu_name,qty,unit_price,line_total,notes',
+            ])
+            ->withCount('items')
+            ->orderByRaw('COALESCE(closed_at, opened_at, created_at) DESC')
+            ->paginate($perPage);
+
+        return response()->json([
+            'data' => [
+                'customer' => $customer->only([
+                    'id',
+                    'name',
+                    'phone',
+                    'email',
+                    'member_code',
+                    'notes',
+                ]),
+                'summary' => [
+                    'transaction_count' => (int) ($summary->transaction_count ?? 0),
+                    'total_spent' => (float) ($summary->total_spent ?? 0),
+                    'average_transaction' => (float) ($summary->average_transaction ?? 0),
+                    'last_purchase_at' => $summary->last_purchase_at,
+                ],
+                'purchases' => $purchases->items(),
+                'pagination' => [
+                    'current_page' => $purchases->currentPage(),
+                    'last_page' => $purchases->lastPage(),
+                    'per_page' => $purchases->perPage(),
+                    'total' => $purchases->total(),
+                ],
+            ],
+        ]);
+    }
+
     public function update(Request $request, Customer $customer): JsonResponse
     {
         $validated = $request->validate([

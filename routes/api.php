@@ -4,6 +4,8 @@ use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BarController;
 use App\Http\Controllers\Api\V1\BillController;
+use App\Http\Controllers\Api\V1\BillDiscountController;
+use App\Http\Controllers\Api\V1\BranchController;
 use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\HealthController;
@@ -39,6 +41,8 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AuthController::class, 'me']);
+        Route::get('/branches', [BranchController::class, 'index']);
+        Route::post('/auth/switch-branch', [BranchController::class, 'switch']);
         Route::get('/notifications', [NotificationController::class, 'index']);
         Route::post('/notifications/mark-read', [NotificationController::class, 'markRead']);
         Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
@@ -117,6 +121,7 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware('permission:customers.view')->group(function () {
             Route::get('/customers', [CustomerController::class, 'index']);
+            Route::get('/customers/{customer}/purchase-history', [CustomerController::class, 'purchaseHistory']);
             Route::get('/customers/{customer}', [CustomerController::class, 'show']);
         });
 
@@ -151,10 +156,13 @@ Route::prefix('v1')->group(function () {
             Route::get('/bills/{bill}/checklist', [WaiterChecklistController::class, 'showBillChecklist']);
             Route::get('/bills/{bill}/orders', [OrderController::class, 'index']);
             Route::get('/bills/{bill}/payments', [PaymentController::class, 'index']);
+            Route::get('/bills/{bill}/discounts', [BillDiscountController::class, 'index']);
         });
 
         Route::post('/bills', [BillController::class, 'store'])->middleware('permission:bills.create');
         Route::patch('/bills/{bill}', [BillController::class, 'update'])->middleware('permission:bills.manage');
+        Route::post('/bills/{bill}/discounts', [BillDiscountController::class, 'store'])->middleware('permission:bills.manage');
+        Route::delete('/bills/{bill}/discounts/{discount}', [BillDiscountController::class, 'destroy'])->middleware('permission:bills.manage');
         Route::post('/bills/{bill}/reopen', [BillController::class, 'reopen'])->middleware('permission:bills.reopen');
         Route::post('/bills/{bill}/merge', [BillController::class, 'merge'])->middleware('permission:bills.merge');
         Route::post('/bills/{bill}/split', [BillController::class, 'split'])->middleware('permission:bills.split');

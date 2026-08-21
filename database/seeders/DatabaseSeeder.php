@@ -20,5 +20,9 @@ class DatabaseSeeder extends Seeder
                 DemoDataSeeder::class,
             ]);
         }
+
+        $this->call([
+            BranchFoundationSeeder::class,
+        ]);
     }
 }

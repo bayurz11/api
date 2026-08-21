@@ -90,4 +90,9 @@ class Bill extends Model
     {
         return $this->hasMany(Payment::class);
     }
+
+    public function discounts(): HasMany
+    {
+        return $this->hasMany(BillDiscount::class);
+    }
 }

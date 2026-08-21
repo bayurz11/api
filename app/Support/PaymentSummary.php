@@ -36,6 +36,8 @@ class PaymentSummary
 
         return [
             'status' => $bill->status,
+            'subtotal' => $bill->subtotal,
+            'discount_total' => $bill->discount_total,
             'grand_total' => $bill->grand_total,
             'paid_total' => $bill->paid_total,
             'balance_due' => $bill->balance_due,

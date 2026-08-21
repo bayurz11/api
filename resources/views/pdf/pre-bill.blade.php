@@ -31,7 +31,10 @@
     <div class="page">
         <div class="center">
             <div class="title">{{ $profile['restaurant_name'] }}</div>
-            <div class="subtitle">PRE-BILL / STRUK ORDER</div>
+            <div class="subtitle">
+                {{ ($isIncremental ?? false) ? 'TAMBAHAN ORDER' : 'PRE-BILL / STRUK ORDER' }}
+                #{{ $printSequence ?? 1 }}
+            </div>
             @if(!empty($profile['restaurant_address']))
                 <div class="muted">{{ $profile['restaurant_address'] }}</div>
             @endif
@@ -83,7 +86,8 @@
         <div class="separator"></div>
 
         <div class="section">
-            <div class="row"><span class="label">Subtotal Bill</span><span class="value">Rp {{ number_format((float) $bill->subtotal, 0, ',', '.') }}</span></div>
+            <div class="row"><span class="label">Subtotal Cetakan Ini</span><span class="value">Rp {{ number_format((float) collect($sections)->sum('subtotal'), 0, ',', '.') }}</span></div>
+            <div class="row"><span class="label">Total Bill Berjalan</span><span class="value">Rp {{ number_format((float) $bill->subtotal, 0, ',', '.') }}</span></div>
             <div class="row"><span class="label">Status</span><span class="value">{{ $bill->status }}</span></div>
         </div>
 

@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Bill;
 use App\Models\BillItem;
-use App\Models\Menu;
 use App\Models\Order;
 use App\Models\Printer;
 use App\Models\PrintJob;
@@ -179,27 +178,41 @@ class PrintController extends Controller
             'printer_id' => ['nullable', 'integer', 'exists:printers,id'],
         ]);
 
-        $bill = Bill::query()->with(['table', 'customer'])->findOrFail($validated['bill_id']);
-        $sections = $this->buildPreBillSections($bill);
-        abort_if($sections->isEmpty(), 422, 'Bill belum memiliki item untuk dicetak.');
+        $job = DB::transaction(function () use ($request, $validated): PrintJob {
+            $bill = Bill::query()
+                ->with(['table', 'customer'])
+                ->lockForUpdate()
+                ->findOrFail($validated['bill_id']);
+            [$printedQuantities, $previousPrintCount] = $this->preBillPrintHistory($bill);
+            $sections = $this->buildPreBillSections($bill, $printedQuantities);
 
-        $job = $this->createPrintJob(
-            request: $request,
-            jobType: 'PRE_BILL',
-            referenceType: 'bill',
-            referenceId: $bill->id,
-            printerId: $validated['printer_id'] ?? $this->resolvePrinterId(null),
-            payload: [
-                'bill_no' => $bill->bill_no,
-                'bill_type' => $bill->bill_type,
-                'table' => $bill->table?->name,
-                'guest_count' => $bill->guest_count,
-                'customer_name' => $bill->customer?->name ?: $bill->customer_name,
-                'sections' => $sections->values()->all(),
-                'subtotal' => (float) $bill->subtotal,
-                'printed_at' => now()->toDateTimeString(),
-            ],
-        );
+            abort_if(
+                $sections->isEmpty(),
+                422,
+                'Tidak ada item baru yang perlu dicetak pada pre-bill.',
+            );
+
+            return $this->createPrintJob(
+                request: $request,
+                jobType: 'PRE_BILL',
+                referenceType: 'bill',
+                referenceId: $bill->id,
+                printerId: $validated['printer_id'] ?? $this->resolvePrinterId(null),
+                payload: [
+                    'bill_no' => $bill->bill_no,
+                    'bill_type' => $bill->bill_type,
+                    'table' => $bill->table?->name,
+                    'guest_count' => $bill->guest_count,
+                    'customer_name' => $bill->customer?->name ?: $bill->customer_name,
+                    'print_sequence' => $previousPrintCount + 1,
+                    'is_incremental' => $previousPrintCount > 0,
+                    'sections' => $sections->values()->all(),
+                    'subtotal' => (float) $sections->sum('subtotal'),
+                    'bill_subtotal' => (float) $bill->subtotal,
+                    'printed_at' => now()->toDateTimeString(),
+                ],
+            );
+        });
 
         return response()->json([
             'message' => 'Print job pre-bill berhasil dibuat.',
@@ -235,8 +248,13 @@ class PrintController extends Controller
     public function preBillPdf(Bill $bill)
     {
         $bill->load(['table', 'customer']);
-        $sections = $this->buildPreBillSections($bill);
-        abort_if($sections->isEmpty(), 422, 'Bill belum memiliki item untuk dicetak.');
+        [$printedQuantities, $previousPrintCount] = $this->preBillPrintHistory($bill);
+        $sections = $this->buildPreBillSections($bill, $printedQuantities);
+        abort_if(
+            $sections->isEmpty(),
+            422,
+            'Tidak ada item baru yang perlu dicetak pada pre-bill.',
+        );
 
         $profile = RestaurantProfileController::profilePayload();
         $printedAt = now();
@@ -247,6 +265,8 @@ class PrintController extends Controller
             'customerName' => $bill->customer?->name ?: $bill->customer_name,
             'sections' => $sections,
             'printedAt' => $printedAt,
+            'printSequence' => $previousPrintCount + 1,
+            'isIncremental' => $previousPrintCount > 0,
         ])->setPaper(self::THERMAL_PAPER_80MM, 'portrait');
 
         return $pdf->download("pre-bill-{$bill->bill_no}.pdf");
@@ -369,7 +389,48 @@ class PrintController extends Controller
             ->value('id');
     }
 
-    private function buildPreBillSections(Bill $bill): Collection
+    /**
+     * @return array{0: array<int, int>, 1: int}
+     */
+    private function preBillPrintHistory(Bill $bill): array
+    {
+        $jobs = PrintJob::query()
+            ->where('job_type', 'PRE_BILL')
+            ->where('reference_type', 'bill')
+            ->where('reference_id', $bill->id)
+            ->whereNotIn('status', ['CANCELLED', 'FAILED'])
+            ->orderBy('id')
+            ->get(['payload']);
+        $printedQuantities = [];
+
+        foreach ($jobs as $job) {
+            $payload = is_array($job->payload)
+                ? $job->payload
+                : json_decode((string) $job->payload, true);
+
+            if (! is_array($payload)) {
+                continue;
+            }
+
+            foreach ($payload['sections'] ?? [] as $section) {
+                foreach ($section['items'] ?? [] as $item) {
+                    $itemId = (int) ($item['id'] ?? 0);
+                    $quantity = max((int) ($item['qty'] ?? 0), 0);
+
+                    if ($itemId > 0 && $quantity > 0) {
+                        $printedQuantities[$itemId] = ($printedQuantities[$itemId] ?? 0) + $quantity;
+                    }
+                }
+            }
+        }
+
+        return [$printedQuantities, $jobs->count()];
+    }
+
+    /**
+     * @param  array<int, int>  $printedQuantities
+     */
+    private function buildPreBillSections(Bill $bill, array $printedQuantities = []): Collection
     {
         $items = BillItem::query()
             ->leftJoin('menus', 'menus.id', '=', 'bill_items.menu_id')
@@ -392,7 +453,18 @@ class PrintController extends Controller
             ->get();
 
         return $items
-            ->map(function ($item): array {
+            ->map(function ($item) use ($printedQuantities): ?array {
+                $itemId = (int) $item->id;
+                $originalQuantity = (int) $item->qty;
+                $remainingQuantity = max(
+                    $originalQuantity - ($printedQuantities[$itemId] ?? 0),
+                    0,
+                );
+
+                if ($remainingQuantity === 0) {
+                    return null;
+                }
+
                 $sectionName = $item->category_name
                     ?: match ($item->station_type) {
                         'KITCHEN' => 'Makanan',
@@ -404,15 +476,18 @@ class PrintController extends Controller
                     'section_name' => $sectionName,
                     'section_sort_order' => (int) ($item->category_sort_order ?? 9999),
                     'item' => [
-                        'id' => (int) $item->id,
+                        'id' => $itemId,
                         'menu_name' => $item->menu_name,
-                        'qty' => (int) $item->qty,
+                        'qty' => $remainingQuantity,
                         'unit_price' => (float) $item->unit_price,
-                        'line_total' => (float) $item->line_total,
+                        'line_total' => $originalQuantity > 0
+                            ? (float) $item->line_total / $originalQuantity * $remainingQuantity
+                            : 0,
                         'notes' => $item->notes,
                     ],
                 ];
             })
+            ->filter()
             ->groupBy('section_name')
             ->map(function (Collection $sectionRows, string $sectionName): array {
                 $items = $sectionRows

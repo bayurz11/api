@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
@@ -36,14 +37,18 @@ class AuthController extends Controller
         $user->tokens()->where('name', 'mobile-app')->delete();
 
         $expirationMinutes = max((int) env('SANCTUM_TOKEN_EXPIRATION_MINUTES', 10080), 1);
-        $token = $user->createToken(
+        $activeBranch = $this->defaultBranchFor($user);
+        $newAccessToken = $user->createToken(
             'mobile-app',
             ['*'],
             now()->addMinutes($expirationMinutes),
-        )->plainTextToken;
+        );
+        $newAccessToken->accessToken->forceFill([
+            'branch_id' => $activeBranch?->id,
+        ])->save();
 
         return response()->json([
-            'token' => $token,
+            'token' => $newAccessToken->plainTextToken,
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
@@ -51,6 +56,8 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'roles' => $user->getRoleNames()->values(),
                 'permissions' => $this->permissionsFor($user),
+                'branches' => $this->branchesFor($user),
+                'active_branch' => $activeBranch ? $this->serializeBranch($activeBranch) : null,
             ],
         ]);
     }
@@ -70,6 +77,8 @@ class AuthController extends Controller
                 'email' => $user->email,
                 'roles' => $user->getRoleNames()->values(),
                 'permissions' => $this->permissionsFor($user),
+                'branches' => $this->branchesFor($user),
+                'active_branch' => $this->activeBranchFor($request),
             ],
         ]);
     }
@@ -128,5 +137,57 @@ class AuthController extends Controller
             ->pluck('name')
             ->values()
             ->all();
+    }
+
+    private function defaultBranchFor(User $user): ?Branch
+    {
+        return $user->branches()
+            ->where('branches.is_active', true)
+            ->wherePivot('is_active', true)
+            ->orderByPivot('is_default', 'desc')
+            ->orderBy('branches.name')
+            ->first();
+    }
+
+    private function activeBranchFor(Request $request): ?array
+    {
+        $branchId = $request->user()->currentAccessToken()?->branch_id;
+        if (! $branchId) {
+            return null;
+        }
+
+        $branch = $request->user()->branches()
+            ->whereKey($branchId)
+            ->wherePivot('is_active', true)
+            ->first();
+
+        return $branch ? $this->serializeBranch($branch) : null;
+    }
+
+    private function branchesFor(User $user): array
+    {
+        return $user->branches()
+            ->where('branches.is_active', true)
+            ->wherePivot('is_active', true)
+            ->orderByPivot('is_default', 'desc')
+            ->orderBy('branches.name')
+            ->get()
+            ->map(fn (Branch $branch): array => $this->serializeBranch($branch))
+            ->all();
+    }
+
+    private function serializeBranch(Branch $branch): array
+    {
+        return [
+            'id' => $branch->id,
+            'organization_id' => $branch->organization_id,
+            'code' => $branch->code,
+            'name' => $branch->name,
+            'address' => $branch->address,
+            'phone' => $branch->phone,
+            'timezone' => $branch->timezone,
+            'role' => $branch->pivot?->role_name,
+            'is_default' => (bool) ($branch->pivot?->is_default ?? false),
+        ];
     }
 }

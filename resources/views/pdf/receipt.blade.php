@@ -21,6 +21,7 @@
         td.right, th.right { text-align: right; }
         .total { font-weight: bold; }
         .footer { margin-top: 16px; text-align: center; font-size: 9px; color: #6b7280; }
+        .tax-note { margin-top: 6px; line-height: 1.45; }
         .separator { border-top: 1px dashed #9ca3af; margin: 10px 0; }
     </style>
 </head>
@@ -100,7 +101,8 @@
         </div>
 
         <div class="footer">
-            Terima kasih. Struk ini merupakan bukti pembayaran yang sah.
+            <div>Terima kasih. Struk ini merupakan bukti pembayaran yang sah.</div>
+            <div class="tax-note">Pajak atas transaksi ini ditanggung dan disetorkan oleh restoran sesuai ketentuan yang berlaku.</div>
         </div>
     </div>
 </body>
