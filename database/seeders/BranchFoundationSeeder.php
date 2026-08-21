@@ -34,12 +34,20 @@ class BranchFoundationSeeder extends Seeder
             $branchId = DB::table('branches')->insertGetId([
                 'organization_id' => $organizationId,
                 'code' => 'UTAMA',
-                'name' => 'Cabang Utama',
+                'name' => 'Warung Babeh Cabang Utama',
                 'timezone' => 'Asia/Jakarta',
                 'is_active' => true,
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
+        } else {
+            DB::table('branches')
+                ->where('id', $branchId)
+                ->where('name', 'Cabang Utama')
+                ->update([
+                    'name' => 'Warung Babeh Cabang Utama',
+                    'updated_at' => $now,
+                ]);
         }
 
         DB::table('users')->orderBy('id')->each(function (object $user) use ($branchId, $now): void {

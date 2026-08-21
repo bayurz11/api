@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\Api\V1\RestaurantProfileController;
 use App\Models\Branch;
 use App\Models\Organization;
+use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -234,6 +236,72 @@ class MultiBranchFoundationTest extends TestCase
             'key' => 'restaurant_name',
             'value' => 'Warung Babeh Cabang Profil',
         ]);
+        $this->assertDatabaseHas('branches', [
+            'id' => $otherBranch->id,
+            'address' => 'Alamat khusus cabang profil',
+        ]);
+
+        Setting::query()->withoutGlobalScope('branch')->updateOrCreate(
+            [
+                'branch_id' => $defaultBranch->id,
+                'key' => 'restaurant_address',
+            ],
+            [
+                'value' => 'Alamat profil utama yang lama',
+                'group' => 'restaurant',
+            ],
+        );
+
+        $otherProfile = RestaurantProfileController::profilePayload(
+            branchId: $otherBranch->id,
+        );
+        $mainProfile = RestaurantProfileController::profilePayload(
+            branchId: $defaultBranch->id,
+        );
+
+        $this->assertSame('Alamat khusus cabang profil', $otherProfile['restaurant_address']);
+        $this->assertSame('Alamat profil utama yang lama', $mainProfile['restaurant_address']);
+    }
+
+    public function test_branch_scoped_qr_resolves_duplicate_table_codes_without_collision(): void
+    {
+        $this->seed();
+
+        $mainBranch = Branch::query()->where('code', 'UTAMA')->firstOrFail();
+        $otherBranch = Branch::query()->create([
+            'organization_id' => $mainBranch->organization_id,
+            'code' => 'BATU-10',
+            'name' => 'Cabang Batu 10',
+        ]);
+
+        DB::table('tables')->insert([
+            'branch_id' => $otherBranch->id,
+            'code' => 'T01',
+            'name' => 'Meja Batu 01',
+            'capacity' => 6,
+            'area' => 'Lantai 1',
+            'status' => 'AVAILABLE',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->getJson('/api/v1/qr-menu/T01')
+            ->assertConflict()
+            ->assertJsonPath('message', 'Kode meja tersedia di beberapa cabang. Gunakan QR terbaru dari restoran.');
+
+        $this->getJson('/api/v1/branches/UTAMA/qr-menu/T01')
+            ->assertOk()
+            ->assertJsonPath('data.table.name', 'Meja 01');
+
+        $this->getJson('/api/v1/branches/BATU-10/qr-menu/T01')
+            ->assertOk()
+            ->assertJsonPath('data.table.name', 'Meja Batu 01');
+
+        $this->get('/menu/BATU-10/T01')
+            ->assertOk()
+            ->assertSee('const branchCode = "BATU-10"', false)
+            ->assertSee('/branches/${encodeURIComponent(branchCode)}/qr-menu/', false);
     }
 
     public function test_owner_report_combines_only_branches_in_the_same_organization(): void

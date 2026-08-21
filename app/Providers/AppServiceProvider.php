@@ -31,12 +31,14 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('qr-checkout', function (Request $request) {
             return Limit::perMinute(10)->by(
+                ($request->route('branchCode') ?? 'legacy').'|'.
                 $request->route('tableCode').'|'.$request->ip(),
             );
         });
 
         RateLimiter::for('qr-menu', function (Request $request) {
             return Limit::perMinute(30)->by(
+                ($request->route('branchCode') ?? 'legacy').'|'.
                 $request->route('tableCode').'|'.$request->ip(),
             );
         });

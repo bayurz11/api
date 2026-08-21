@@ -80,7 +80,7 @@ return new class extends Migration
         $branchId = DB::table('branches')->insertGetId([
             'organization_id' => $organizationId,
             'code' => 'UTAMA',
-            'name' => 'Cabang Utama',
+            'name' => 'Warung Babeh Cabang Utama',
             'timezone' => 'Asia/Jakarta',
             'is_active' => true,
             'created_at' => $now,

@@ -77,7 +77,15 @@ class TableController extends Controller
     public function update(Request $request, Table $table): JsonResponse
     {
         $validated = $request->validate([
-            'code' => ['sometimes', 'required', 'string', 'max:50', Rule::unique('tables', 'code')->ignore($table->id)],
+            'code' => [
+                'sometimes',
+                'required',
+                'string',
+                'max:50',
+                Rule::unique('tables', 'code')
+                    ->where(fn ($query) => $query->where('branch_id', $table->branch_id))
+                    ->ignore($table->id),
+            ],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'capacity' => ['sometimes', 'integer', 'min:1'],
             'area' => ['nullable', 'string', 'max:255'],

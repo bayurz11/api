@@ -8,14 +8,12 @@ use App\Models\BillItem;
 use App\Models\Order;
 use App\Models\Printer;
 use App\Models\PrintJob;
-use App\Models\Setting;
 use App\Support\AuditLogger;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
 class PrintController extends Controller
 {
@@ -142,8 +140,9 @@ class PrintController extends Controller
             'printer_id' => ['nullable', 'integer', 'exists:printers,id'],
         ]);
 
-        $bill = Bill::query()->with(['table', 'payments'])->findOrFail($validated['bill_id']);
+        $bill = Bill::query()->with(['branch', 'table', 'payments'])->findOrFail($validated['bill_id']);
         abort_if((float) $bill->paid_total <= 0, 422, 'Bill belum memiliki pembayaran untuk dicetak.');
+        $profile = RestaurantProfileController::profilePayload($request, (int) $bill->branch_id);
 
         $job = $this->createPrintJob(
             request: $request,
@@ -156,6 +155,7 @@ class PrintController extends Controller
                 'table' => $bill->table?->name,
                 'grand_total' => $bill->grand_total,
                 'paid_total' => $bill->paid_total,
+                'restaurant' => $profile,
                 'payments' => $bill->payments->map(fn ($payment) => [
                     'payment_no' => $payment->payment_no,
                     'payment_method' => $payment->payment_method,
@@ -180,7 +180,7 @@ class PrintController extends Controller
 
         $job = DB::transaction(function () use ($request, $validated): PrintJob {
             $bill = Bill::query()
-                ->with(['table', 'customer'])
+                ->with(['branch', 'table', 'customer'])
                 ->lockForUpdate()
                 ->findOrFail($validated['bill_id']);
             [$printedQuantities, $previousPrintCount] = $this->preBillPrintHistory($bill);
@@ -190,6 +190,11 @@ class PrintController extends Controller
                 $sections->isEmpty(),
                 422,
                 'Tidak ada item baru yang perlu dicetak pada pre-bill.',
+            );
+
+            $profile = RestaurantProfileController::profilePayload(
+                $request,
+                (int) $bill->branch_id,
             );
 
             return $this->createPrintJob(
@@ -204,6 +209,7 @@ class PrintController extends Controller
                     'table' => $bill->table?->name,
                     'guest_count' => $bill->guest_count,
                     'customer_name' => $bill->customer?->name ?: $bill->customer_name,
+                    'restaurant' => $profile,
                     'print_sequence' => $previousPrintCount + 1,
                     'is_incremental' => $previousPrintCount > 0,
                     'sections' => $sections->values()->all(),
@@ -222,17 +228,17 @@ class PrintController extends Controller
 
     public function receiptPdf(Bill $bill)
     {
-        $bill->load(['table', 'customer', 'items', 'payments']);
+        $bill->load(['branch', 'table', 'customer', 'items', 'payments']);
         abort_if((float) $bill->paid_total <= 0, 422, 'Bill belum memiliki pembayaran untuk dicetak.');
 
-        $profile = RestaurantProfileController::profilePayload();
+        $profile = RestaurantProfileController::profilePayload(
+            request(),
+            (int) $bill->branch_id,
+        );
         $printedAt = now();
-        $logoPath = Setting::getValue('restaurant_logo_path');
-        $profile['restaurant_logo_path'] = is_string($logoPath)
-            && $logoPath !== ''
-            && Storage::disk('public')->exists($logoPath)
-            ? Storage::disk('public')->path($logoPath)
-            : null;
+        $profile['restaurant_logo_path'] = RestaurantProfileController::logoPathForBranch(
+            (int) $bill->branch_id,
+        );
         $customerName = $bill->customer?->name ?: $bill->customer_name;
 
         $pdf = Pdf::loadView('pdf.receipt', [
@@ -247,7 +253,7 @@ class PrintController extends Controller
 
     public function preBillPdf(Bill $bill)
     {
-        $bill->load(['table', 'customer']);
+        $bill->load(['branch', 'table', 'customer']);
         [$printedQuantities, $previousPrintCount] = $this->preBillPrintHistory($bill);
         $sections = $this->buildPreBillSections($bill, $printedQuantities);
         abort_if(
@@ -256,7 +262,10 @@ class PrintController extends Controller
             'Tidak ada item baru yang perlu dicetak pada pre-bill.',
         );
 
-        $profile = RestaurantProfileController::profilePayload();
+        $profile = RestaurantProfileController::profilePayload(
+            request(),
+            (int) $bill->branch_id,
+        );
         $printedAt = now();
 
         $pdf = Pdf::loadView('pdf.pre-bill', [

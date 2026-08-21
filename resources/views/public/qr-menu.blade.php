@@ -1323,9 +1323,13 @@
     </div>
 
     <script>
+        const branchCode = @json($branchCode ?? null);
         const tableCode = @json($tableCode);
         const apiBase = `${window.location.origin}/api/v1`;
-        const guestTokenStorageKey = `warung-babeh-qr-order:${tableCode}`;
+        const qrMenuApiPath = branchCode
+            ? `${apiBase}/branches/${encodeURIComponent(branchCode)}/qr-menu/${encodeURIComponent(tableCode)}`
+            : `${apiBase}/qr-menu/${encodeURIComponent(tableCode)}`;
+        const guestTokenStorageKey = `warung-babeh-qr-order:${branchCode ?? 'legacy'}:${tableCode}`;
         const state = {
             table: null,
             categories: [],
@@ -2138,7 +2142,7 @@
             clearFeedback();
 
             try {
-                const response = await fetch(`${apiBase}/qr-menu/${tableCode}`);
+                const response = await fetch(qrMenuApiPath);
                 const payload = await response.json();
 
                 if (!response.ok) {
@@ -2190,7 +2194,7 @@
             checkoutButton.textContent = 'Mengirim...';
 
             try {
-                const response = await fetch(`${apiBase}/qr-menu/${tableCode}/checkout`, {
+                const response = await fetch(`${qrMenuApiPath}/checkout`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
