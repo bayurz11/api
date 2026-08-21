@@ -21,6 +21,8 @@ class RoleAndPermissionSeeder extends Seeder
             'dashboard.view',
             'settings.view',
             'settings.manage',
+            'branches.view',
+            'branches.manage',
             'users.view',
             'users.manage',
             'tables.view',

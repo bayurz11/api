@@ -1,21 +1,36 @@
 # Implementasi Multi-Cabang
 
-Dokumen ini menjelaskan fondasi multi-cabang yang disiapkan dalam PR ini dan batas aman implementasinya.
+Dokumen ini menjelaskan implementasi multi-cabang tahap operasional, kontrak API, dan batas fase saat ini.
 
-## Selesai dalam PR ini
+## Status implementasi
+
+### Selesai
 
 - Entitas organisasi dan cabang.
 - Relasi pengguna ke banyak cabang, termasuk cabang default, status akses, dan snapshot role.
-- Konfigurasi menu per cabang untuk SKU lokal, harga, station, status aktif, dan ketersediaan.
 - Cabang aktif disimpan pada token Sanctum sehingga konteks cabang mengikuti sesi perangkat.
 - Login dan endpoint profil mengembalikan daftar cabang serta cabang aktif.
-- Endpoint daftar cabang dan pergantian cabang memvalidasi keanggotaan pengguna.
-- Migrasi data lama dan seeder demo memasukkan pengguna serta menu ke `Cabang Utama`.
+- Pengelolaan cabang, penempatan pengguna, serta validasi organisasi dan cabang aktif.
+- Konfigurasi menu per cabang untuk SKU lokal, harga, station, status aktif, dan ketersediaan.
+- Isolasi data operasional berdasarkan `branch_id` untuk meja, pelanggan, reservasi, tagihan, order, pembayaran, pesanan QR, stok, printer, pengaturan, dan catatan belanja.
+- Middleware wajib untuk menyelesaikan konteks cabang dari token pengguna.
+- Dashboard, laporan, notifikasi operasional, QR meja, dan manajemen pengguna dibatasi ke cabang aktif.
+- Pesanan QR membawa identitas cabang sehingga kode meja yang sama dapat dipakai pada cabang berbeda.
+- Migrasi data lama dan seeder demo memasukkan data ke `Cabang Utama`.
+- Flutter menampilkan pemilih cabang pada Pengaturan untuk pengguna yang memiliki lebih dari satu cabang.
+- Owner/admin dapat membuka halaman Kelola Cabang untuk membuat, mengubah, menonaktifkan cabang, dan mengatur penempatan petugas.
+- Pergantian cabang memperbarui token/sesi terenkripsi dan memuat ulang provider operasional.
+- Pengujian otomatis mencakup isolasi meja lintas cabang, salin konfigurasi menu, penempatan pengguna, dan pergantian cabang.
 
 ## Kontrak API
 
 - `GET /api/v1/branches`: daftar cabang aktif yang dapat diakses pengguna.
 - `POST /api/v1/auth/switch-branch`: mengubah cabang aktif untuk token saat ini.
+- `GET /api/v1/branches/manage`: daftar cabang yang dapat dikelola owner/admin.
+- `POST /api/v1/branches`: membuat cabang dan menyalin konfigurasi awal dari cabang sumber.
+- `PATCH /api/v1/branches/{branch}`: memperbarui identitas dan status cabang.
+- `PUT /api/v1/branches/{branch}/users/{user}`: menempatkan pengguna ke cabang.
+- `DELETE /api/v1/branches/{branch}/users/{user}`: menghapus akses pengguna dari cabang.
 
 Payload pergantian cabang:
 
@@ -34,21 +49,26 @@ Data pada `menus` tetap menjadi katalog pusat. Nilai operasional menggunakan ove
 - Station: `branch_menus.station_type`, fallback ke `menus.station_type`.
 - Menu dapat dijual bila konfigurasi pusat dan konfigurasi cabang sama-sama aktif dan tersedia.
 
-## Belum aman untuk diaktifkan penuh
+## Batas fase saat ini
 
-PR ini belum mengisolasi data transaksi berdasarkan cabang. Jangan membuka dua cabang operasional pada production sebelum fase berikut selesai:
+- Role pengguna masih bersifat global pada organisasi. Snapshot `role_name` tersedia pada relasi cabang, tetapi role berbeda per cabang belum diaktifkan karena permission Spatie saat ini bersifat global.
+- Nama, kategori, gambar, dan deskripsi menu merupakan katalog pusat. Harga, SKU lokal, station, status aktif, dan ketersediaan dapat berbeda per cabang.
+- Menghapus menu masih menghapus katalog pusat. Untuk operasional multi-cabang, nonaktifkan menu pada cabang; pembatasan penghapusan katalog pusat perlu diselesaikan pada fase UI manajemen cabang.
+- Laporan owner lintas seluruh cabang belum tersedia. Endpoint laporan saat ini sengaja mengikuti cabang aktif untuk mencegah kebocoran data.
+- Profil/logo publik restoran masih memerlukan kontrak cabang eksplisit jika setiap cabang akan memakai identitas visual berbeda.
 
-1. Tambahkan `branch_id` pada meja, tagihan, pesanan QR, reservasi, pelanggan, printer, stok, shift kasir, pengaturan, dan audit log.
-2. Tambahkan middleware `BranchContext` dan filter wajib pada seluruh query operasional.
-3. Ubah unique constraint yang saat ini global menjadi unik per cabang bila relevan.
-4. Gunakan identitas cabang pada URL atau token QR meja agar kode meja yang sama aman digunakan di cabang berbeda.
-5. Tambahkan pengelolaan cabang, penempatan pengguna, dan pemilih cabang pada aplikasi Flutter.
-6. Tambahkan pengujian kebocoran data lintas cabang untuk seluruh endpoint.
+## Deploy
 
-## Kriteria selesai fase operasional
+1. Cadangkan database production.
+2. Jalankan `php artisan migrate --force` agar data lama dipindahkan ke `Cabang Utama`.
+3. Jalankan `php artisan db:seed --class=RoleAndPermissionSeeder --force` untuk permission cabang.
+4. Jalankan `php artisan optimize:clear` lalu `php artisan optimize`.
+5. Login ulang pada aplikasi agar token lama memperoleh `branch_id` aktif.
+6. Uji Cabang A dan Cabang B menggunakan meja, menu, transaksi, serta pengguna yang berbeda sebelum go-live.
 
-- Pengguna hanya melihat transaksi, meja, stok, printer, reservasi, dan laporan cabang aktif.
-- Owner organisasi dapat melihat laporan gabungan tanpa melewati pembatasan akses cabang.
-- Pergantian cabang membatalkan cache layar dan memuat ulang semua provider terkait.
-- Pesanan QR selalu masuk ke cabang dan meja yang benar.
-- Tes otomatis membuktikan data Cabang A tidak dapat dibaca atau diubah dari token Cabang B.
+## Verifikasi
+
+- Backend: `php artisan test` menghasilkan 56 tes lulus dengan 661 assertion.
+- Format backend: `vendor/bin/pint --dirty` lulus.
+- Flutter: `flutter analyze` lulus tanpa issue.
+- Flutter: `flutter test` menghasilkan 125 tes lulus untuk ukuran mobile, tablet, dan Windows.

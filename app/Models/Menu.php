@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Support\BranchContext;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -50,13 +52,37 @@ class Menu extends Model
 
     public function recipeIngredients(): BelongsToMany
     {
-        return $this->belongsToMany(Ingredient::class, 'menu_ingredients')
+        $relation = $this->belongsToMany(Ingredient::class, 'menu_ingredients')
             ->withPivot('qty_per_portion')
             ->withTimestamps();
+
+        $branchId = app(BranchContext::class)->id();
+
+        return $branchId ? $relation->wherePivot('branch_id', $branchId) : $relation;
     }
 
     public function options(): HasMany
     {
         return $this->hasMany(MenuOption::class)->orderBy('sort_order')->orderBy('id');
+    }
+
+    public function branchSettings(): HasMany
+    {
+        return $this->hasMany(BranchMenu::class);
+    }
+
+    public function scopeForBranch(Builder $query, int $branchId): Builder
+    {
+        return $query
+            ->join('branch_menus as active_branch_menu', function ($join) use ($branchId): void {
+                $join->on('active_branch_menu.menu_id', '=', 'menus.id')
+                    ->where('active_branch_menu.branch_id', $branchId)
+                    ->where('active_branch_menu.is_active', true);
+            })
+            ->select('menus.*')
+            ->selectRaw('COALESCE(active_branch_menu.local_sku, menus.sku) as sku')
+            ->selectRaw('COALESCE(active_branch_menu.price, menus.price) as price')
+            ->selectRaw('COALESCE(active_branch_menu.station_type, menus.station_type) as station_type')
+            ->selectRaw('CASE WHEN menus.is_available = 1 AND active_branch_menu.is_available = 1 THEN 1 ELSE 0 END as is_available');
     }
 }

@@ -31,6 +31,7 @@ class AuditLogger
         ?string $reason = null,
     ): void {
         DB::table('audit_logs')->insert([
+            'branch_id' => app(BranchContext::class)->id(),
             'user_id' => $userId,
             'role_name' => $roleName,
             'action' => $action,

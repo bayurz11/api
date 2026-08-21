@@ -1,13 +1,14 @@
 <?php
 
+use App\Http\Middleware\RequirePermission;
+use App\Http\Middleware\ResolveActiveBranch;
+use App\Http\Middleware\SecurityHeaders;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
-use App\Http\Middleware\RequirePermission;
-use App\Http\Middleware\SecurityHeaders;
-use Illuminate\Auth\AuthenticationException;
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -23,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->append(SecurityHeaders::class);
         $middleware->alias([
             'permission' => RequirePermission::class,
+            'branch' => ResolveActiveBranch::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -30,7 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request) => $request->is('api/*'),
         );
 
-        $exceptions->render(function (\Throwable $exception, Request $request) {
+        $exceptions->render(function (Throwable $exception, Request $request) {
             if (! $request->is('api/*') || ! app()->environment('production')) {
                 return null;
             }

@@ -9,7 +9,9 @@ use App\Models\OrderItem;
 use App\Models\Reservation;
 use App\Models\Setting;
 use App\Models\ShoppingNote;
+use App\Support\BranchContext;
 use App\Support\TableCleaningManager;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -35,7 +37,7 @@ class DashboardController extends Controller
             $user = $request->user();
 
             $payload = Cache::remember(
-                $this->dashboardCacheKey((int) $user->id),
+                $this->dashboardCacheKey((int) $user->id, app(BranchContext::class)->requireId()),
                 now()->addSeconds(10),
                 function () use (
                     $todayStart,
@@ -44,26 +46,26 @@ class DashboardController extends Controller
                     $previousSevenDaysStart,
                     $previousWindowEnd
                 ): array {
-                    $todaySales = (float) DB::table('payments')
+                    $todaySales = (float) $this->branchQuery('payments')
                         ->where('paid_at', '>=', $todayStart)
                         ->where('paid_at', '<', $tomorrowStart)
                         ->where('status', 'PAID')
                         ->sum('amount');
 
-                    $todayBills = (int) DB::table('payments')
+                    $todayBills = (int) $this->branchQuery('payments')
                         ->where('paid_at', '>=', $todayStart)
                         ->where('paid_at', '<', $tomorrowStart)
                         ->where('status', 'PAID')
                         ->distinct('bill_id')
                         ->count('bill_id');
 
-                    $todayPurchaseTotal = (float) DB::table('ingredient_stock_movements')
+                    $todayPurchaseTotal = (float) $this->branchQuery('ingredient_stock_movements')
                         ->whereIn('movement_type', ['INITIAL', 'ADJUST_IN'])
                         ->where('created_at', '>=', $todayStart)
                         ->where('created_at', '<', $tomorrowStart)
                         ->sum('total_cost');
 
-                    $todayEstimatedCogs = (float) DB::table('bill_items')
+                    $todayEstimatedCogs = (float) $this->branchQuery('bill_items')
                         ->join('bills', 'bills.id', '=', 'bill_items.bill_id')
                         ->join('payments', 'payments.bill_id', '=', 'bills.id')
                         ->join('menus', 'menus.id', '=', 'bill_items.menu_id')
@@ -93,13 +95,13 @@ class DashboardController extends Controller
                         ->selectRaw('SUM(COALESCE(requested_qty, 0) * COALESCE(estimated_unit_price, 0)) as total_value')
                         ->value('total_value');
 
-                    $previousSales = (float) DB::table('payments')
+                    $previousSales = (float) $this->branchQuery('payments')
                         ->where('paid_at', '>=', $previousSevenDaysStart)
                         ->where('paid_at', '<', $previousWindowEnd)
                         ->where('status', 'PAID')
                         ->sum('amount');
 
-                    $currentSevenDaySales = (float) DB::table('payments')
+                    $currentSevenDaySales = (float) $this->branchQuery('payments')
                         ->where('paid_at', '>=', $sevenDaysStart)
                         ->where('paid_at', '<', $tomorrowStart)
                         ->where('status', 'PAID')
@@ -109,7 +111,7 @@ class DashboardController extends Controller
                         ? ($currentSevenDaySales > 0 ? 100.0 : 0.0)
                         : (($currentSevenDaySales - $previousSales) / $previousSales) * 100;
 
-                    $dailyTrend = DB::table('payments')
+                    $dailyTrend = $this->branchQuery('payments')
                         ->where('paid_at', '>=', $sevenDaysStart)
                         ->where('paid_at', '<', $tomorrowStart)
                         ->where('status', 'PAID')
@@ -135,7 +137,7 @@ class DashboardController extends Controller
                         })
                         ->values();
 
-                    $topItems = DB::table('bill_items')
+                    $topItems = $this->branchQuery('bill_items')
                         ->leftJoin('menus', 'menus.id', '=', 'bill_items.menu_id')
                         ->where('bill_items.created_at', '>=', $todayStart)
                         ->where('bill_items.created_at', '<', $tomorrowStart)
@@ -155,7 +157,7 @@ class DashboardController extends Controller
                         ])
                         ->values();
 
-                    $paymentMethods = DB::table('payments')
+                    $paymentMethods = $this->branchQuery('payments')
                         ->where('paid_at', '>=', $todayStart)
                         ->where('paid_at', '<', $tomorrowStart)
                         ->where('status', 'PAID')
@@ -170,7 +172,7 @@ class DashboardController extends Controller
                         ])
                         ->values();
 
-                    $billTypes = DB::table('bills')
+                    $billTypes = $this->branchQuery('bills')
                         ->where('created_at', '>=', $todayStart)
                         ->where('created_at', '<', $tomorrowStart)
                         ->select('bill_type')
@@ -363,11 +365,11 @@ class DashboardController extends Controller
 
                     return [
                         'summary' => [
-                            'total_tables' => DB::table('tables')->count(),
-                            'available_tables' => DB::table('tables')->where('status', 'AVAILABLE')->count(),
-                            'occupied_tables' => DB::table('tables')->where('status', 'OPEN_BILL')->count(),
-                            'open_bills' => DB::table('bills')->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID'])->count(),
-                            'ready_to_pay_bills' => DB::table('bills')->whereIn('status', ['READY_TO_PAY', 'PARTIALLY_PAID'])->count(),
+                            'total_tables' => $this->branchQuery('tables')->count(),
+                            'available_tables' => $this->branchQuery('tables')->where('status', 'AVAILABLE')->count(),
+                            'occupied_tables' => $this->branchQuery('tables')->where('status', 'OPEN_BILL')->count(),
+                            'open_bills' => $this->branchQuery('bills')->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID'])->count(),
+                            'ready_to_pay_bills' => $this->branchQuery('bills')->whereIn('status', ['READY_TO_PAY', 'PARTIALLY_PAID'])->count(),
                             'today_sales' => $todaySales,
                             'today_bills' => $todayBills,
                             'average_bill' => $todayBills > 0 ? round($todaySales / $todayBills, 2) : 0,
@@ -438,7 +440,10 @@ class DashboardController extends Controller
             ]);
 
             try {
-                Cache::forget($this->dashboardCacheKey((int) ($request->user()?->id ?? 0)));
+                Cache::forget($this->dashboardCacheKey(
+                    (int) ($request->user()?->id ?? 0),
+                    app(BranchContext::class)->requireId(),
+                ));
             } catch (Throwable) {
                 // A broken cache connection must not prevent the fallback response.
             }
@@ -463,25 +468,25 @@ class DashboardController extends Controller
             }
         };
 
-        $totalTables = (int) $metric(fn () => DB::table('tables')->count());
+        $totalTables = (int) $metric(fn () => $this->branchQuery('tables')->count());
         $availableTables = (int) $metric(
-            fn () => DB::table('tables')->where('status', 'AVAILABLE')->count(),
+            fn () => $this->branchQuery('tables')->where('status', 'AVAILABLE')->count(),
         );
         $occupiedTables = (int) $metric(
-            fn () => DB::table('tables')->where('status', 'OPEN_BILL')->count(),
+            fn () => $this->branchQuery('tables')->where('status', 'OPEN_BILL')->count(),
         );
         $openBills = (int) $metric(
-            fn () => DB::table('bills')
+            fn () => $this->branchQuery('bills')
                 ->whereIn('status', ['OPEN', 'ORDERING', 'READY_TO_PAY', 'PARTIALLY_PAID'])
                 ->count(),
         );
         $readyToPayBills = (int) $metric(
-            fn () => DB::table('bills')
+            fn () => $this->branchQuery('bills')
                 ->whereIn('status', ['READY_TO_PAY', 'PARTIALLY_PAID'])
                 ->count(),
         );
         $todaySales = (float) $metric(
-            fn () => DB::table('payments')
+            fn () => $this->branchQuery('payments')
                 ->where('paid_at', '>=', now()->startOfDay())
                 ->where('paid_at', '<', now()->addDay()->startOfDay())
                 ->where('status', 'PAID')
@@ -526,9 +531,15 @@ class DashboardController extends Controller
         ];
     }
 
-    private function dashboardCacheKey(int $userId): string
+    private function dashboardCacheKey(int $userId, int $branchId): string
     {
-        return "dashboard:v1:user:{$userId}";
+        return "dashboard:v2:branch:{$branchId}:user:{$userId}";
+    }
+
+    private function branchQuery(string $table): Builder
+    {
+        return DB::table($table)
+            ->where("{$table}.branch_id", app(BranchContext::class)->requireId());
     }
 
     private function boolSetting(string $key, bool $default): bool

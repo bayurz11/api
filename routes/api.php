@@ -36,13 +36,24 @@ Route::prefix('v1')->group(function () {
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
     Route::get('/qr-menu/{tableCode}', [QrMenuController::class, 'menu'])->middleware('throttle:qr-menu');
     Route::post('/qr-menu/{tableCode}/checkout', [QrMenuController::class, 'checkout'])->middleware('throttle:qr-checkout');
+    Route::get('/branches/{branchCode}/qr-menu/{tableCode}', [QrMenuController::class, 'branchMenu'])->middleware('throttle:qr-menu');
+    Route::post('/branches/{branchCode}/qr-menu/{tableCode}/checkout', [QrMenuController::class, 'branchCheckout'])->middleware('throttle:qr-checkout');
     Route::get('/qr-menu/orders/{guestToken}', [QrMenuController::class, 'status'])->middleware('throttle:qr-status');
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', 'branch'])->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/me', [AuthController::class, 'me']);
         Route::get('/branches', [BranchController::class, 'index']);
         Route::post('/auth/switch-branch', [BranchController::class, 'switch']);
+        Route::middleware('permission:branches.view')->group(function () {
+            Route::get('/branches/manage', [BranchController::class, 'manageIndex']);
+        });
+        Route::middleware('permission:branches.manage')->group(function () {
+            Route::post('/branches', [BranchController::class, 'store']);
+            Route::patch('/branches/{branch}', [BranchController::class, 'update']);
+            Route::put('/branches/{branch}/users/{user}', [BranchController::class, 'assignUser']);
+            Route::delete('/branches/{branch}/users/{user}', [BranchController::class, 'removeUser']);
+        });
         Route::get('/notifications', [NotificationController::class, 'index']);
         Route::post('/notifications/mark-read', [NotificationController::class, 'markRead']);
         Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllRead']);

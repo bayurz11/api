@@ -6,6 +6,7 @@ use App\Models\Branch;
 use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class MultiBranchFoundationTest extends TestCase
@@ -64,6 +65,63 @@ class MultiBranchFoundationTest extends TestCase
             ->postJson('/api/v1/auth/switch-branch', ['branch_id' => $foreignBranch->id])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('branch_id');
+    }
+
+    public function test_owner_can_create_branch_copy_catalog_and_assign_user(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $cashier = User::query()->where('username', 'kasir01')->firstOrFail();
+        $sourceBranch = $owner->branches()->wherePivot('is_default', true)->firstOrFail();
+        $token = $owner->createToken('multi-branch-test');
+        $token->accessToken->forceFill(['branch_id' => $sourceBranch->id])->save();
+
+        $response = $this->withToken($token->plainTextToken)->postJson('/api/v1/branches', [
+            'code' => 'SELATAN',
+            'name' => 'Cabang Selatan',
+            'address' => 'Jakarta Selatan',
+        ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('data.code', 'SELATAN')
+            ->assertJsonPath('data.name', 'Cabang Selatan');
+
+        $targetBranchId = (int) $response->json('data.id');
+        $this->assertSame(
+            DB::table('branch_menus')->where('branch_id', $sourceBranch->id)->count(),
+            DB::table('branch_menus')->where('branch_id', $targetBranchId)->count(),
+        );
+
+        $this->withToken($token->plainTextToken)
+            ->putJson("/api/v1/branches/{$targetBranchId}/users/{$cashier->id}", [
+                'is_default' => false,
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseHas('branch_user', [
+            'branch_id' => $targetBranchId,
+            'user_id' => $cashier->id,
+            'role_name' => 'Kasir',
+            'is_active' => true,
+        ]);
+
+        $this->withToken($token->plainTextToken)
+            ->getJson('/api/v1/branches/manage')
+            ->assertOk()
+            ->assertJsonFragment(['name' => 'Cabang Selatan'])
+            ->assertJsonFragment(['username' => 'kasir01'])
+            ->assertJsonFragment(['username' => 'bar01']);
+
+        $this->withToken($token->plainTextToken)
+            ->postJson('/api/v1/auth/switch-branch', ['branch_id' => $targetBranchId])
+            ->assertOk();
+
+        $this->withToken($token->plainTextToken)
+            ->getJson('/api/v1/tables')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
     }
 
     private function userWithBranches(): array

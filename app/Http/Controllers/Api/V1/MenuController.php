@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\BranchMenu;
 use App\Models\Menu;
 use App\Models\MenuCategory;
 use App\Models\MenuOption;
 use App\Support\AuditLogger;
+use App\Support\BranchContext;
 use App\Support\InventoryManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,6 +28,7 @@ class MenuController extends Controller
     public function index(Request $request): JsonResponse
     {
         $menus = Menu::query()
+            ->forBranch(app(BranchContext::class)->requireId())
             ->with([
                 'category:id,name,station_type',
                 'stockItem:id,code,name,unit,current_stock,is_active',
@@ -34,18 +37,22 @@ class MenuController extends Controller
                 'recipeIngredients:id,code,name,unit,current_stock,minimum_stock',
             ])
             ->withCount('recipeIngredients')
-            ->when($request->filled('category_id'), fn ($query) => $query->where('category_id', $request->integer('category_id')))
-            ->when($request->boolean('available_only', false), fn ($query) => $query->where('is_available', true)->where('is_stock_available', true)->where('is_active', true))
+            ->when($request->filled('category_id'), fn ($query) => $query->where('menus.category_id', $request->integer('category_id')))
+            ->when($request->boolean('available_only', false), fn ($query) => $query
+                ->where('active_branch_menu.is_available', true)
+                ->where('menus.is_available', true)
+                ->where('menus.is_stock_available', true)
+                ->where('menus.is_active', true))
             ->when(
                 $request->filled('search'),
                 fn ($query) => $query->where(function ($innerQuery) use ($request) {
                     $term = $request->string('search')->toString();
                     $innerQuery
-                        ->where('name', 'like', "%{$term}%")
-                        ->orWhere('sku', 'like', "%{$term}%");
+                        ->where('menus.name', 'like', "%{$term}%")
+                        ->orWhere('menus.sku', 'like', "%{$term}%");
                 }),
             )
-            ->orderBy('name')
+            ->orderBy('menus.name')
             ->get();
 
         return response()->json([
@@ -101,6 +108,16 @@ class MenuController extends Controller
 
                 $this->syncMenuOptions($menu, $validated['options'] ?? []);
                 $this->syncRecipeIngredients($menu, $validated['recipe_ingredients'] ?? null);
+
+                BranchMenu::query()->create([
+                    'branch_id' => app(BranchContext::class)->requireId(),
+                    'menu_id' => $menu->id,
+                    'local_sku' => $menu->sku,
+                    'price' => $menu->price,
+                    'station_type' => $menu->station_type,
+                    'is_available' => $menu->is_available,
+                    'is_active' => $menu->is_active,
+                ]);
 
                 return $menu;
             });
@@ -176,6 +193,16 @@ class MenuController extends Controller
                 }
 
                 $menu->save();
+                BranchMenu::query()->updateOrCreate(
+                    ['menu_id' => $menu->id],
+                    [
+                        'local_sku' => $menu->sku,
+                        'price' => $menu->price,
+                        'station_type' => $menu->station_type,
+                        'is_available' => $menu->is_available,
+                        'is_active' => $menu->is_active,
+                    ],
+                );
                 if (array_key_exists('options', $validated)) {
                     $this->syncMenuOptions($menu, $validated['options'] ?? []);
                 }
@@ -331,6 +358,7 @@ class MenuController extends Controller
         $syncPayload = collect($ingredients)
             ->mapWithKeys(fn (array $row) => [
                 (int) $row['ingredient_id'] => [
+                    'branch_id' => app(BranchContext::class)->requireId(),
                     'qty_per_portion' => $row['qty_per_portion'],
                 ],
             ])

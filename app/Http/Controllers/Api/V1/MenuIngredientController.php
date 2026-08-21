@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Ingredient;
 use App\Models\Menu;
 use App\Support\AuditLogger;
+use App\Support\BranchContext;
 use App\Support\InventoryManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -50,6 +51,7 @@ class MenuIngredientController extends Controller
         $syncPayload = collect($validated['ingredients'])
             ->mapWithKeys(fn (array $row) => [
                 (int) $row['ingredient_id'] => [
+                    'branch_id' => app(BranchContext::class)->requireId(),
                     'qty_per_portion' => $row['qty_per_portion'],
                 ],
             ])

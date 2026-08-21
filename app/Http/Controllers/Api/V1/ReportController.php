@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Bill;
 use App\Models\Payment;
+use App\Support\BranchContext;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -292,7 +294,7 @@ class ReportController extends Controller
             ])
             ->values();
 
-        $billTypes = DB::table('payments')
+        $billTypes = $this->branchQuery('payments')
             ->join('bills', 'bills.id', '=', 'payments.bill_id')
             ->where('payments.paid_at', '>=', $rangeStart)
             ->where('payments.paid_at', '<', $rangeEnd)
@@ -310,7 +312,7 @@ class ReportController extends Controller
             ])
             ->values();
 
-        $topItems = DB::table('bill_items')
+        $topItems = $this->branchQuery('bill_items')
             ->join('bills', 'bills.id', '=', 'bill_items.bill_id')
             ->join('payments', 'payments.bill_id', '=', 'bills.id')
             ->where('payments.paid_at', '>=', $rangeStart)
@@ -332,7 +334,7 @@ class ReportController extends Controller
             ])
             ->values();
 
-        $categorySales = DB::table('bill_items')
+        $categorySales = $this->branchQuery('bill_items')
             ->join('bills', 'bills.id', '=', 'bill_items.bill_id')
             ->join('payments', 'payments.bill_id', '=', 'bills.id')
             ->leftJoin('menus', 'menus.id', '=', 'bill_items.menu_id')
@@ -356,7 +358,7 @@ class ReportController extends Controller
             ])
             ->values();
 
-        $dailyTrend = DB::table('payments')
+        $dailyTrend = $this->branchQuery('payments')
             ->where('paid_at', '>=', $rangeStart)
             ->where('paid_at', '<', $rangeEnd)
             ->selectRaw('DATE(paid_at) as report_date')
@@ -375,7 +377,7 @@ class ReportController extends Controller
             ])
             ->values();
 
-        $topTables = DB::table('payments')
+        $topTables = $this->branchQuery('payments')
             ->join('bills', 'bills.id', '=', 'payments.bill_id')
             ->leftJoin('tables', 'tables.id', '=', 'bills.table_id')
             ->where('payments.paid_at', '>=', $rangeStart)
@@ -398,7 +400,7 @@ class ReportController extends Controller
             ->values();
 
         $hourlyExpression = $this->hourExpression();
-        $hourlyTrend = DB::table('payments')
+        $hourlyTrend = $this->branchQuery('payments')
             ->where('paid_at', '>=', $rangeStart)
             ->where('paid_at', '<', $rangeEnd)
             ->where('status', 'PAID')
@@ -417,7 +419,7 @@ class ReportController extends Controller
             ])
             ->values();
 
-        $topCustomers = DB::table('payments')
+        $topCustomers = $this->branchQuery('payments')
             ->join('bills', 'bills.id', '=', 'payments.bill_id')
             ->leftJoin('customers', 'customers.id', '=', 'bills.customer_id')
             ->where('payments.paid_at', '>=', $rangeStart)
@@ -455,18 +457,18 @@ class ReportController extends Controller
             ->where('status', 'PAID')
             ->distinct('bill_id')
             ->count('bill_id');
-        $purchaseTotal = (float) DB::table('ingredient_stock_movements')
+        $purchaseTotal = (float) $this->branchQuery('ingredient_stock_movements')
             ->whereIn('movement_type', ['INITIAL', 'ADJUST_IN'])
             ->where('created_at', '>=', $rangeStart)
             ->where('created_at', '<', $rangeEnd)
             ->sum('total_cost');
-        $previousPurchaseTotal = (float) DB::table('ingredient_stock_movements')
+        $previousPurchaseTotal = (float) $this->branchQuery('ingredient_stock_movements')
             ->whereIn('movement_type', ['INITIAL', 'ADJUST_IN'])
             ->where('created_at', '>=', $previousRangeStart)
             ->where('created_at', '<', $previousRangeEnd)
             ->sum('total_cost');
 
-        $estimatedCogs = (float) DB::table('bill_items')
+        $estimatedCogs = (float) $this->branchQuery('bill_items')
             ->join('bills', 'bills.id', '=', 'bill_items.bill_id')
             ->join('payments', 'payments.bill_id', '=', 'bills.id')
             ->join('menus', 'menus.id', '=', 'bill_items.menu_id')
@@ -475,7 +477,7 @@ class ReportController extends Controller
             ->where('payments.paid_at', '<', $rangeEnd)
             ->where('payments.status', 'PAID')
             ->sum(DB::raw('bill_items.qty * COALESCE(menus.stock_deduction_qty, 0) * COALESCE(NULLIF(ingredients.last_purchase_price, 0), ingredients.purchase_price, 0)'));
-        $previousEstimatedCogs = (float) DB::table('bill_items')
+        $previousEstimatedCogs = (float) $this->branchQuery('bill_items')
             ->join('bills', 'bills.id', '=', 'bill_items.bill_id')
             ->join('payments', 'payments.bill_id', '=', 'bills.id')
             ->join('menus', 'menus.id', '=', 'bill_items.menu_id')
@@ -1329,5 +1331,11 @@ XML;
     private function escapeSpreadsheetValue(string $value): string
     {
         return htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
+    }
+
+    private function branchQuery(string $table): Builder
+    {
+        return DB::table($table)
+            ->where("{$table}.branch_id", app(BranchContext::class)->requireId());
     }
 }

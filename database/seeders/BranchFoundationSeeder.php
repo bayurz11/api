@@ -74,5 +74,19 @@ class BranchFoundationSeeder extends Seeder
                 ],
             );
         });
+
+        $operationalTables = [
+            'customers', 'tables', 'reservations', 'printers', 'settings',
+            'bills', 'bill_items', 'orders', 'order_items', 'payments', 'deposits',
+            'print_jobs', 'cashier_shifts', 'audit_logs', 'qr_orders', 'qr_order_items',
+            'ingredients', 'menu_ingredients', 'ingredient_stock_movements',
+            'shopping_notes', 'bill_discounts',
+        ];
+
+        foreach ($operationalTables as $table) {
+            if (DB::getSchemaBuilder()->hasColumn($table, 'branch_id')) {
+                DB::table($table)->whereNull('branch_id')->update(['branch_id' => $branchId]);
+            }
+        }
     }
 }

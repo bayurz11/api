@@ -11,6 +11,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Support\AuditLogger;
 use App\Support\BillTotals;
+use App\Support\BranchContext;
 use App\Support\InventoryManager;
 use App\Support\SequenceNumber;
 use Illuminate\Http\JsonResponse;
@@ -43,9 +44,10 @@ class OrderController extends Controller
 
         $order = DB::transaction(function () use ($bill, $validated, $user) {
             $menus = Menu::query()
+                ->forBranch(app(BranchContext::class)->requireId())
                 ->with('category:id,name,station_type')
                 ->with(['recipeIngredients', 'options'])
-                ->whereIn('id', collect($validated['items'])->pluck('menu_id'))
+                ->whereIn('menus.id', collect($validated['items'])->pluck('menu_id'))
                 ->get()
                 ->keyBy('id');
             $optionIds = collect($validated['items'])

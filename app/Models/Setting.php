@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 
 class Setting extends Model
 {
+    use BelongsToBranch;
+
     protected $fillable = [
         'key',
         'value',

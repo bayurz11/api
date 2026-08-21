@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Bill;
 use App\Models\BillItem;
+use App\Models\Branch;
 use App\Models\Menu;
 use App\Models\MenuOption;
 use App\Models\Order;
@@ -14,6 +15,7 @@ use App\Models\QrOrderItem;
 use App\Models\Table;
 use App\Support\AuditLogger;
 use App\Support\BillTotals;
+use App\Support\BranchContext;
 use App\Support\InventoryManager;
 use App\Support\SequenceNumber;
 use Illuminate\Http\JsonResponse;
@@ -24,9 +26,9 @@ use Illuminate\Support\Str;
 
 class QrMenuController extends Controller
 {
-    public function menu(string $tableCode): JsonResponse
+    public function menu(string $tableCode, ?string $branchCode = null): JsonResponse
     {
-        $table = $this->resolveActiveTable($tableCode);
+        $table = $this->resolveActiveTable($tableCode, $branchCode);
 
         $categories = DB::table('menu_categories')
             ->where('is_active', true)
@@ -34,6 +36,7 @@ class QrMenuController extends Controller
             ->get()
             ->map(function ($category) {
                 $menus = Menu::query()
+                    ->forBranch(app(BranchContext::class)->requireId())
                     ->with([
                         'options' => fn ($query) => $query
                             ->select('id', 'menu_id', 'name', 'price_delta', 'is_available', 'is_stock_available', 'is_active', 'sort_order')
@@ -43,11 +46,12 @@ class QrMenuController extends Controller
                             ->orderBy('sort_order')
                             ->orderBy('id'),
                     ])
-                    ->where('category_id', $category->id)
-                    ->where('is_active', true)
-                    ->where('is_available', true)
-                    ->where('is_stock_available', true)
-                    ->orderBy('name')
+                    ->where('menus.category_id', $category->id)
+                    ->where('menus.is_active', true)
+                    ->where('menus.is_available', true)
+                    ->where('active_branch_menu.is_available', true)
+                    ->where('menus.is_stock_available', true)
+                    ->orderBy('menus.name')
                     ->get(['id', 'sku', 'name', 'description', 'image_url', 'price', 'station_type']);
 
                 return [
@@ -74,9 +78,14 @@ class QrMenuController extends Controller
         ]);
     }
 
-    public function checkout(Request $request, string $tableCode): JsonResponse
+    public function branchMenu(string $branchCode, string $tableCode): JsonResponse
     {
-        $table = $this->resolveActiveTable($tableCode);
+        return $this->menu($tableCode, $branchCode);
+    }
+
+    public function checkout(Request $request, string $tableCode, ?string $branchCode = null): JsonResponse
+    {
+        $table = $this->resolveActiveTable($tableCode, $branchCode);
 
         $validated = $request->validate([
             'customer_name' => ['nullable', 'string', 'max:255'],
@@ -92,9 +101,10 @@ class QrMenuController extends Controller
 
         $qrOrder = DB::transaction(function () use ($validated, $table) {
             $menus = Menu::query()
+                ->forBranch(app(BranchContext::class)->requireId())
                 ->with('category:id,name,station_type')
                 ->with('options')
-                ->whereIn('id', collect($validated['items'])->pluck('menu_id'))
+                ->whereIn('menus.id', collect($validated['items'])->pluck('menu_id'))
                 ->get()
                 ->keyBy('id');
             $optionIds = collect($validated['items'])
@@ -172,9 +182,14 @@ class QrMenuController extends Controller
         ], 201);
     }
 
+    public function branchCheckout(Request $request, string $branchCode, string $tableCode): JsonResponse
+    {
+        return $this->checkout($request, $tableCode, $branchCode);
+    }
+
     public function status(string $guestToken): JsonResponse
     {
-        $qrOrder = QrOrder::query()
+        $qrOrder = QrOrder::withoutGlobalScope('branch')
             ->with([
                 'table:id,code,name',
                 'bill:id,bill_no,status,table_id',
@@ -183,6 +198,9 @@ class QrMenuController extends Controller
             ])
             ->where('guest_token', $guestToken)
             ->firstOrFail();
+
+        $branch = Branch::query()->whereKey($qrOrder->branch_id)->where('is_active', true)->firstOrFail();
+        app(BranchContext::class)->set($branch);
 
         return response()->json([
             'data' => $qrOrder,
@@ -371,8 +389,26 @@ class QrMenuController extends Controller
         ]);
     }
 
-    private function resolveActiveTable(string $tableCode): Table
+    private function resolveActiveTable(string $tableCode, ?string $branchCode = null): Table
     {
+        $tableQuery = Table::withoutGlobalScope('branch')
+            ->where('code', $tableCode)
+            ->where('is_active', true);
+
+        if ($branchCode !== null) {
+            $tableQuery->whereHas('branch', fn ($query) => $query
+                ->where('code', $branchCode)
+                ->where('is_active', true));
+        }
+
+        $matches = $tableQuery->limit(2)->get();
+        abort_if($matches->isEmpty(), 404, 'Meja tidak ditemukan.');
+        abort_if($matches->count() > 1, 409, 'Kode meja tersedia di beberapa cabang. Gunakan QR terbaru dari restoran.');
+
+        $table = $matches->first();
+        $branch = Branch::query()->whereKey($table->branch_id)->where('is_active', true)->firstOrFail();
+        app(BranchContext::class)->set($branch);
+
         $table = Table::query()
             ->where('code', $tableCode)
             ->where('is_active', true)

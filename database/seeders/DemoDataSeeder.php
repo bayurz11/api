@@ -14,13 +14,14 @@ class DemoDataSeeder extends Seeder
     public function run(): void
     {
         $timestamp = now();
+        $branchId = DB::table('branches')->where('code', 'UTAMA')->value('id');
 
         DB::table('settings')->updateOrInsert(
-            ['key' => 'restaurant_name'],
+            ['branch_id' => $branchId, 'key' => 'restaurant_name'],
             ['value' => 'Warung Babeh', 'group' => 'restaurant', 'created_at' => $timestamp, 'updated_at' => $timestamp],
         );
         DB::table('settings')->updateOrInsert(
-            ['key' => 'restaurant_address'],
+            ['branch_id' => $branchId, 'key' => 'restaurant_address'],
             ['value' => 'Jl. Contoh No. 1, Jakarta', 'group' => 'restaurant', 'created_at' => $timestamp, 'updated_at' => $timestamp],
         );
 
@@ -85,16 +86,17 @@ class DemoDataSeeder extends Seeder
                 'phone' => '081234567890',
                 'email' => 'budi@example.com',
                 'member_code' => 'MBR-001',
+                'branch_id' => $branchId,
                 'reward_points' => 120,
                 'notes' => 'Pelanggan tetap',
             ],
-        ], ['member_code'], ['name', 'phone', 'email', 'reward_points', 'notes']);
+        ], ['branch_id', 'member_code'], ['name', 'phone', 'email', 'reward_points', 'notes']);
 
         DB::table('tables')->upsert([
-            ['code' => 'T01', 'name' => 'Meja 01', 'capacity' => 4, 'area' => 'Indoor', 'status' => 'AVAILABLE', 'cleaning_started_at' => null, 'is_active' => true],
-            ['code' => 'T02', 'name' => 'Meja 02', 'capacity' => 4, 'area' => 'Indoor', 'status' => 'AVAILABLE', 'cleaning_started_at' => null, 'is_active' => true],
-            ['code' => 'T03', 'name' => 'Meja 03', 'capacity' => 2, 'area' => 'Teras', 'status' => 'CLEANING', 'cleaning_started_at' => now(), 'is_active' => true],
-        ], ['code'], ['name', 'capacity', 'area', 'status', 'cleaning_started_at', 'is_active']);
+            ['branch_id' => $branchId, 'code' => 'T01', 'name' => 'Meja 01', 'capacity' => 4, 'area' => 'Indoor', 'status' => 'AVAILABLE', 'cleaning_started_at' => null, 'is_active' => true],
+            ['branch_id' => $branchId, 'code' => 'T02', 'name' => 'Meja 02', 'capacity' => 4, 'area' => 'Indoor', 'status' => 'AVAILABLE', 'cleaning_started_at' => null, 'is_active' => true],
+            ['branch_id' => $branchId, 'code' => 'T03', 'name' => 'Meja 03', 'capacity' => 2, 'area' => 'Teras', 'status' => 'CLEANING', 'cleaning_started_at' => now(), 'is_active' => true],
+        ], ['branch_id', 'code'], ['name', 'capacity', 'area', 'status', 'cleaning_started_at', 'is_active']);
 
         DB::table('menu_categories')->upsert([
             ['name' => 'Makanan', 'station_type' => 'KITCHEN', 'sort_order' => 1, 'is_active' => true],
@@ -113,7 +115,7 @@ class DemoDataSeeder extends Seeder
             ['category_id', 'name', 'description', 'price', 'station_type', 'is_available', 'is_active'],
         );
 
-        DB::table('ingredients')->upsert([
+        $ingredientRows = [
             ['code' => 'BHN-001', 'name' => 'Beras', 'unit' => 'porsi', 'current_stock' => 120, 'minimum_stock' => 20, 'purchase_price' => 4000, 'last_purchase_price' => 4000, 'notes' => 'Stok nasi siap jual', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
             ['code' => 'BHN-002', 'name' => 'Ayam Fillet', 'unit' => 'porsi', 'current_stock' => 80, 'minimum_stock' => 15, 'purchase_price' => 12000, 'last_purchase_price' => 12000, 'notes' => 'Stok lauk ayam', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
             ['code' => 'BHN-003', 'name' => 'Telur', 'unit' => 'butir', 'current_stock' => 180, 'minimum_stock' => 36, 'purchase_price' => 2500, 'last_purchase_price' => 2500, 'notes' => 'Tambahan telur', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
@@ -125,7 +127,12 @@ class DemoDataSeeder extends Seeder
             ['code' => 'BHN-009', 'name' => 'Ayam Paha Atas', 'unit' => 'potong', 'current_stock' => 40, 'minimum_stock' => 10, 'purchase_price' => 11000, 'last_purchase_price' => 11000, 'notes' => 'Varian ayam bakar paha atas', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
             ['code' => 'BHN-010', 'name' => 'Ayam Dada', 'unit' => 'potong', 'current_stock' => 35, 'minimum_stock' => 10, 'purchase_price' => 12000, 'last_purchase_price' => 12000, 'notes' => 'Varian ayam bakar dada', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
             ['code' => 'BHN-011', 'name' => 'Ayam Sayap', 'unit' => 'potong', 'current_stock' => 30, 'minimum_stock' => 8, 'purchase_price' => 9000, 'last_purchase_price' => 9000, 'notes' => 'Varian ayam bakar sayap', 'is_active' => true, 'created_at' => $timestamp, 'updated_at' => $timestamp],
-        ], ['code'], ['name', 'unit', 'current_stock', 'minimum_stock', 'purchase_price', 'last_purchase_price', 'notes', 'is_active', 'updated_at']);
+        ];
+        DB::table('ingredients')->upsert(
+            array_map(fn (array $row): array => ['branch_id' => $branchId, ...$row], $ingredientRows),
+            ['branch_id', 'code'],
+            ['name', 'unit', 'current_stock', 'minimum_stock', 'purchase_price', 'last_purchase_price', 'notes', 'is_active', 'updated_at'],
+        );
 
         $ingredients = DB::table('ingredients')->pluck('id', 'code');
         DB::table('menus')->where('sku', 'MKN-001')->update(['stock_item_id' => $ingredients['BHN-001'], 'stock_deduction_qty' => 1]);
@@ -137,7 +144,7 @@ class DemoDataSeeder extends Seeder
         $ayamBakarId = DB::table('menus')->where('sku', 'MKN-009')->value('id');
 
         DB::table('menu_ingredients')->updateOrInsert(
-            ['menu_id' => $ayamBakarId, 'ingredient_id' => $ingredients['BHN-001']],
+            ['branch_id' => $branchId, 'menu_id' => $ayamBakarId, 'ingredient_id' => $ingredients['BHN-001']],
             ['qty_per_portion' => 1, 'created_at' => $timestamp, 'updated_at' => $timestamp],
         );
 

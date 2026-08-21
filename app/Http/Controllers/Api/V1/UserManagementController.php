@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Support\AuditLogger;
+use App\Support\BranchContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +29,9 @@ class UserManagementController extends Controller
         ]);
 
         $users = User::query()
+            ->whereHas('branches', fn ($query) => $query
+                ->where('branches.id', app(BranchContext::class)->requireId())
+                ->where('branch_user.is_active', true))
             ->with('roles:id,name')
             ->withCount('tokens')
             ->when(isset($validated['search']), function ($query) use ($validated) {
@@ -210,6 +214,14 @@ class UserManagementController extends Controller
 
     private function ensureActorCanManageTarget(User $actor, User $target): void
     {
+        abort_unless(
+            $target->branches()
+                ->where('branches.id', app(BranchContext::class)->requireId())
+                ->where('branch_user.is_active', true)
+                ->exists(),
+            404,
+        );
+
         if (! $this->actorIsOwner($actor) && $target->hasAnyRole(self::PRIVILEGED_ROLES)) {
             abort(403, 'Admin hanya dapat mengelola akun operasional.');
         }
