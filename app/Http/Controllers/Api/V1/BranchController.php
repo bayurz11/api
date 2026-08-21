@@ -110,6 +110,8 @@ class BranchController extends Controller
         $sourceBranch = app(BranchContext::class)->branch();
         abort_if(! $sourceBranch, 409, 'Cabang aktif belum dipilih.');
 
+        $this->normalizeBranchCode($request);
+
         $validated = $request->validate([
             'code' => [
                 'required', 'string', 'max:50', 'alpha_dash',
@@ -121,6 +123,9 @@ class BranchController extends Controller
             'timezone' => ['nullable', 'timezone'],
             'copy_menu_settings' => ['sometimes', 'boolean'],
             'copy_restaurant_settings' => ['sometimes', 'boolean'],
+        ], [
+            'code.alpha_dash' => 'Kode cabang hanya boleh berisi huruf, angka, tanda hubung, atau garis bawah.',
+            'code.unique' => 'Kode cabang sudah digunakan pada jaringan restoran ini.',
         ]);
 
         $branch = DB::transaction(function () use ($request, $sourceBranch, $validated): Branch {
@@ -168,6 +173,7 @@ class BranchController extends Controller
     public function update(Request $request, Branch $branch): JsonResponse
     {
         $this->ensureSameOrganization($branch);
+        $this->normalizeBranchCode($request);
         $validated = $request->validate([
             'code' => [
                 'sometimes', 'required', 'string', 'max:50', 'alpha_dash',
@@ -180,6 +186,9 @@ class BranchController extends Controller
             'phone' => ['nullable', 'string', 'max:30'],
             'timezone' => ['sometimes', 'required', 'timezone'],
             'is_active' => ['sometimes', 'boolean'],
+        ], [
+            'code.alpha_dash' => 'Kode cabang hanya boleh berisi huruf, angka, tanda hubung, atau garis bawah.',
+            'code.unique' => 'Kode cabang sudah digunakan pada jaringan restoran ini.',
         ]);
 
         abort_if(
@@ -295,6 +304,19 @@ class BranchController extends Controller
             $branch->organization_id === app(BranchContext::class)->branch()?->organization_id,
             404,
         );
+    }
+
+    private function normalizeBranchCode(Request $request): void
+    {
+        if (! $request->has('code')) {
+            return;
+        }
+
+        $code = strtoupper(trim((string) $request->input('code')));
+        $code = preg_replace('/[^A-Z0-9_-]+/', '-', $code) ?? '';
+        $code = preg_replace('/-+/', '-', $code) ?? '';
+
+        $request->merge(['code' => trim($code, '-')]);
     }
 
     private function copyMenuSettings(int $sourceBranchId, int $targetBranchId): void

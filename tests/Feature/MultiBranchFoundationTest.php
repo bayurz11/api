@@ -124,6 +124,32 @@ class MultiBranchFoundationTest extends TestCase
             ->assertJsonCount(0, 'data');
     }
 
+    public function test_branch_code_is_normalized_before_validation(): void
+    {
+        $this->seed();
+
+        $owner = User::query()->where('username', 'owner')->firstOrFail();
+        $sourceBranch = $owner->branches()->wherePivot('is_default', true)->firstOrFail();
+        $token = $owner->createToken('branch-code-test');
+        $token->accessToken->forceFill(['branch_id' => $sourceBranch->id])->save();
+
+        $this->withToken($token->plainTextToken)
+            ->postJson('/api/v1/branches', [
+                'code' => 'TPI-Batu 10',
+                'name' => 'Cabang A',
+                'copy_menu_settings' => false,
+                'copy_restaurant_settings' => false,
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.code', 'TPI-BATU-10');
+
+        $this->assertDatabaseHas('branches', [
+            'organization_id' => $sourceBranch->organization_id,
+            'code' => 'TPI-BATU-10',
+            'name' => 'Cabang A',
+        ]);
+    }
+
     public function test_role_and_permissions_follow_the_active_branch(): void
     {
         $this->seed();
