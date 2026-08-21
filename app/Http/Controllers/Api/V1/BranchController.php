@@ -63,8 +63,10 @@ class BranchController extends Controller
             ->where('organization_id', $organizationId)
             ->with(['users' => fn ($query) => $query->orderBy('users.name')])
             ->withCount([
-                'users as active_users_count' => fn ($query) => $query->wherePivot('is_active', true),
-                'menuSettings as active_menus_count' => fn ($query) => $query->where('is_active', true),
+                'users as active_users_count' => fn ($query) => $query->where('branch_user.is_active', true),
+                'menuSettings as active_menus_count' => fn ($query) => $query
+                    ->withoutGlobalScope('branch')
+                    ->where('branch_menus.is_active', true),
             ])
             ->orderByDesc('is_active')
             ->orderBy('name')

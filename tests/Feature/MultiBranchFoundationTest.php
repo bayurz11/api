@@ -107,12 +107,20 @@ class MultiBranchFoundationTest extends TestCase
             'is_active' => true,
         ]);
 
-        $this->withToken($token->plainTextToken)
+        $managedResponse = $this->withToken($token->plainTextToken)
             ->getJson('/api/v1/branches/manage')
             ->assertOk()
             ->assertJsonFragment(['name' => 'Cabang Selatan'])
             ->assertJsonFragment(['username' => 'kasir01'])
             ->assertJsonFragment(['username' => 'bar01']);
+
+        $managedBranch = collect($managedResponse->json('data'))
+            ->firstWhere('id', $targetBranchId);
+        $this->assertSame(2, $managedBranch['active_users_count']);
+        $this->assertSame(
+            DB::table('branch_menus')->where('branch_id', $targetBranchId)->where('is_active', true)->count(),
+            $managedBranch['active_menus_count'],
+        );
 
         $this->withToken($token->plainTextToken)
             ->postJson('/api/v1/auth/switch-branch', ['branch_id' => $targetBranchId])
